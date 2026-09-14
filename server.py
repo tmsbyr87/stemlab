@@ -644,6 +644,79 @@ async def delete_cover(request: Request) -> JSONResponse:
         raise HTTPException(400, f"Cover nicht entfernt: {exc}")
 
 
+@app.get("/api/settings")
+def get_settings() -> JSONResponse:
+    """Aktuelle Einstellungen plus alles, was die Oberfläche zum Aufbau braucht."""
+    config = load_config()
+    return JSONResponse({
+        "values": postprocess.settings(config),
+        "presets": postprocess.PRESETS,
+        "patterns": postprocess.TAG_PATTERNS,
+        "targets": postprocess.TAG_TARGETS,
+        "notations": postprocess.KEY_NOTATIONS,
+        "output_dir": str(output_root()),
+    })
+
+
+@app.post("/api/settings")
+async def set_settings(request: Request) -> JSONResponse:
+    payload = await request.json()
+    values = payload.get("values")
+    if not isinstance(values, dict):
+        raise HTTPException(400, "Ungültige Einstellungen.")
+
+    # Nur bekannte Schlüssel übernehmen und gegen die erlaubten Werte prüfen –
+    # ein Tippfehler in der Oberfläche soll nicht stillschweigend landen.
+    erlaubt = {
+        "tag_pattern": set(postprocess.TAG_PATTERNS),
+        "tag_target": set(postprocess.TAG_TARGETS),
+        "key_notation": set(postprocess.KEY_NOTATIONS),
+    }
+    geprueft = {}
+    for key, default in postprocess.DEFAULT_SETTINGS.items():
+        if key not in values:
+            continue
+        wert = values[key]
+        if key in erlaubt and wert not in erlaubt[key]:
+            raise HTTPException(400, f"Unbekannter Wert für {key}: {wert}")
+        if isinstance(default, bool):
+            wert = bool(wert)
+        elif isinstance(default, int) and not isinstance(wert, bool):
+            try:
+                wert = int(wert)
+            except (TypeError, ValueError):
+                raise HTTPException(400, f"{key} braucht eine Zahl.")
+        geprueft[key] = wert
+
+    if geprueft.get("tempo_min", 0) and geprueft.get("tempo_max", 0):
+        if geprueft["tempo_min"] >= geprueft["tempo_max"]:
+            raise HTTPException(400, "Das untere Tempo muss kleiner sein als das obere.")
+
+    config = load_config()
+    config["tagging"] = {**postprocess.settings(config), **geprueft}
+    save_config(config)
+    return JSONResponse({"values": postprocess.settings(config)})
+
+
+@app.post("/api/settings/preview")
+async def preview_settings(request: Request) -> JSONResponse:
+    """Zeigt an einem Beispiel, was die Einstellungen bewirken.
+
+    Ohne diese Vorschau muss man raten, was "Tonart und Energie" im
+    Kommentarfeld bedeutet – mit ihr steht es direkt daneben.
+    """
+    payload = await request.json()
+    opts = postprocess.settings({"tagging": payload.get("values") or {}})
+    beispiel = {"camelot": "6A", "key_tonic": "G", "key_mode": "minor",
+                "bpm": 124.0, "energy": 5}
+    return JSONResponse({
+        "tag": postprocess.build_tag_text(beispiel, opts),
+        "filename": postprocess.build_filename("vocals", beispiel, opts) + ".wav",
+        "key": postprocess.format_key("6A", "G", "minor", opts),
+        "tempo": postprocess.format_tempo(124.0, opts),
+    })
+
+
 @app.post("/api/quit")
 def quit_app() -> JSONResponse:
     def _bye() -> None:

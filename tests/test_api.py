@@ -164,3 +164,42 @@ def test_text_nur_aus_dem_zielordner(client, tmp_path):
 def test_hostnamen_werden_normalisiert(header, erwartet):
     """Port abschneiden, Groß-/Kleinschreibung angleichen, IPv6-Klammern behalten."""
     assert server._host_only(header) == erwartet
+
+
+# --------------------------------------------------------------------------- #
+# Einstellungen
+# --------------------------------------------------------------------------- #
+
+def test_einstellungen_lesen(client):
+    d = client.get("/api/settings").json()
+    assert "values" in d and "presets" in d
+    assert set(d["presets"]) == {"rekordbox", "traktor", "serato"}
+
+
+def test_einstellungen_speichern(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "CONFIG_PATH", tmp_path / "config.json")
+    r = client.post("/api/settings", json={"values": {"tag_pattern": "key_energy"}})
+    assert r.status_code == 200
+    assert r.json()["values"]["tag_pattern"] == "key_energy"
+
+
+def test_unbekannter_wert_wird_abgewiesen(client):
+    """Ein Tippfehler darf nicht stillschweigend in der Konfiguration landen."""
+    r = client.post("/api/settings", json={"values": {"tag_pattern": "quatsch"}})
+    assert r.status_code == 400
+
+
+def test_verdrehter_tempobereich_wird_abgewiesen(client):
+    r = client.post("/api/settings", json={"values": {"tempo_min": 200, "tempo_max": 100}})
+    assert r.status_code == 400
+
+
+def test_vorschau_zeigt_das_ergebnis(client):
+    """Die Vorschau ist der Kern der Bedienbarkeit – sie muss stimmen."""
+    r = client.post("/api/settings/preview", json={"values": {
+        "tag_pattern": "key_tempo_energy", "key_notation": "camelot",
+        "key_leading_zero": True, "tempo_decimals": 0,
+        "rename_pattern": "{name} - {key}"}})
+    d = r.json()
+    assert d["tag"] == "06A - 124 - 5"
+    assert d["filename"] == "vocals - 06A.wav"

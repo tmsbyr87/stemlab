@@ -87,11 +87,13 @@ TAG_TARGETS = {
     "none":     "Nirgendwo",
 }
 
+# Nur die Namen – die Beispiele zeigt die Oberfläche daneben, weil sie von
+# der führenden Null abhängen (06A statt 6A).
 KEY_NOTATIONS = {
-    "camelot":  "Camelot (6A)",
-    "standard": "Standard (Gm)",
-    "sharps":   "Kreuze (A#m)",
-    "flats":    "B-Vorzeichen (Bbm)",
+    "camelot":  "Camelot",
+    "standard": "Standard",
+    "sharps":   "Kreuze",
+    "flats":    "B-Vorzeichen",
 }
 
 # Tonartnamen mit B-Vorzeichen – Rekordbox und Traktor zeigen sie so an.

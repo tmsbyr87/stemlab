@@ -181,17 +181,6 @@
   .fact b{font-weight:700;font-variant-numeric:tabular-nums}
   .fact small{color:var(--muted);font-size:10.5px}
   .fact .cam{margin-left:2px}
-  /* Camelot-Farbe wie auf dem Rad: Farbton aus der Zahl, A (Moll) blasser als
-     B (Dur). Hell und dunkel entstehen per light-dark() aus demselben Farbton,
-     damit ein Themenwechsel die Chips sofort mitnimmt. */
-  .fact .cam[data-cam]{
-    background:light-dark(hsl(var(--cam-h) 78% 82%),hsl(var(--cam-h) 46% 24%));
-    color:light-dark(hsl(var(--cam-h) 60% 24%),hsl(var(--cam-h) 82% 80%));
-    box-shadow:inset 0 0 0 1px light-dark(hsl(var(--cam-h) 66% 68%),hsl(var(--cam-h) 50% 40%))}
-  .fact .cam[data-cam$="A"]{
-    background:light-dark(hsl(var(--cam-h) 72% 88%),hsl(var(--cam-h) 38% 20%));
-    color:light-dark(hsl(var(--cam-h) 55% 28%),hsl(var(--cam-h) 70% 76%));
-    box-shadow:inset 0 0 0 1px light-dark(hsl(var(--cam-h) 60% 76%),hsl(var(--cam-h) 40% 34%))}
   .bar-p{position:relative;height:5px;background:var(--line);border-radius:99px;overflow:hidden;margin-top:10px}
   .bar-p i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent-2));border-radius:99px;transition:width .35s ease}
   .bar-p.idle i{width:32%;animation:slide 1.3s ease-in-out infinite}
@@ -231,6 +220,91 @@
   .popover input[type=number],.popover input[type=text],.popover select{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font:inherit;font-size:12.5px;width:88px}
   .popover input[type=text]{width:200px}
   .panel{margin-top:9px;padding:11px 13px;border:1px solid var(--line);border-radius:11px;background:var(--panel-2);display:none}
+  /* ---------- Einstellungen (Lightbox) ---------- */
+  /* Ein eigener Dialog statt einer langen Liste in der Seite: links die
+     Bereiche, rechts nur der gewählte. So bleibt der Blick auf das Wesentliche
+     und die Oberfläche darunter verschiebt sich nicht. */
+  .lb{position:fixed;inset:0;z-index:60;display:none;place-items:center;padding:24px;
+    background:rgba(12,14,20,.55);backdrop-filter:blur(3px)}
+  .lb.show{display:grid}
+  .lb-box{width:min(920px,100%);max-height:min(720px,90vh);background:var(--panel);
+    border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-lg);
+    display:grid;grid-template-rows:auto 1fr;overflow:hidden}
+  .lb-head{display:flex;align-items:center;gap:12px;padding:15px 18px;border-bottom:1px solid var(--line)}
+  .lb-head h3{margin:0;font-size:15px}
+  .lb-head .grow{flex:1}
+  .lb-close{width:34px;height:34px;border-radius:50%;border:1px solid var(--line-2);
+    background:var(--panel-2);color:var(--text-2);display:grid;place-items:center;
+    cursor:pointer;font-size:17px;line-height:1;padding:0;flex:none}
+  .lb-close:hover{background:var(--panel-3);color:var(--text)}
+  .lb-body{display:grid;grid-template-columns:186px 1fr;min-height:0}
+
+  .set-nav{border-right:1px solid var(--line);padding:11px;display:flex;flex-direction:column;
+    gap:3px;overflow-y:auto;background:var(--panel-2)}
+  .set-nav button{display:flex;flex-direction:column;align-items:flex-start;gap:1px;
+    padding:9px 11px;border-radius:9px;border:1px solid transparent;background:none;
+    color:var(--text);cursor:pointer;font:inherit;font-size:12.5px;text-align:left;
+    min-height:44px;box-sizing:border-box;width:100%}
+  .set-nav button:hover{background:var(--panel-3)}
+  .set-nav button.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-2);font-weight:600}
+  .set-nav button small{color:var(--muted);font-size:10.5px;font-weight:400;line-height:1.3}
+  .set-nav button.on small{color:var(--accent-2);opacity:.75}
+
+  .set-main{padding:16px 18px;overflow-y:auto;display:grid;gap:14px;align-content:start}
+  .set-lead{color:var(--text-2);font-size:12.5px;line-height:1.5;margin:0}
+  .set-h{margin:0;font-size:14px}
+
+  .presets{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:9px}
+  .preset{display:flex;flex-direction:column;gap:3px;text-align:left;padding:11px 13px;
+    border:1px solid var(--line-2);border-radius:11px;background:var(--panel);
+    color:var(--text);cursor:pointer;font:inherit;min-height:44px}
+  .preset:hover{border-color:var(--accent);background:var(--panel-3)}
+  .preset b{font-size:13px}
+  .preset small{color:var(--muted);font-size:11px;line-height:1.4}
+
+  /* Die Vorschau steht in jedem Bereich unten und zeigt bei jeder Änderung
+     sofort, was tatsächlich in der Datei landet. */
+  .set-preview{border:1px solid var(--line);border-radius:11px;background:var(--panel-2);
+    padding:11px 13px;display:grid;gap:7px;position:sticky;bottom:0}
+  .set-preview .row{display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;font-size:12.5px}
+  .set-preview .lbl{color:var(--muted);min-width:96px;font-size:11.5px}
+  .set-preview code{background:var(--panel-3);border-radius:6px;padding:2px 7px;
+    font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12px;word-break:break-all}
+
+  .field{display:grid;gap:5px}
+  .field>span{font-size:11.5px;color:var(--text-2)}
+  .field>small{font-size:11px;color:var(--muted);line-height:1.4}
+  .choices{display:grid;gap:5px}
+  .choice{display:flex;align-items:center;gap:9px;padding:8px 11px;border:1px solid var(--line-2);
+    border-radius:9px;cursor:pointer;font-size:12.5px;min-height:44px;box-sizing:border-box}
+  .choice:hover{background:var(--panel-3)}
+  .choice.on{border-color:var(--accent);background:var(--accent-soft)}
+  .choice input{margin:0;flex:none}
+  .choice .ex{margin-left:auto;color:var(--muted);font-size:11px;
+    font-family:ui-monospace,"SF Mono",Menlo,monospace}
+  .set-row{display:flex;gap:11px;flex-wrap:wrap;align-items:flex-end}
+  .set-row .field{flex:1;min-width:130px}
+  .set-main input[type=number],.set-main input[type=text]{padding:8px 10px;border-radius:9px;
+    border:1px solid var(--line-2);background:var(--panel);color:var(--text);font:inherit;
+    font-size:12.5px;min-height:44px;box-sizing:border-box;width:100%}
+  .set-main input:focus{outline:2px solid var(--accent-ring);outline-offset:-1px;border-color:var(--accent)}
+  .set-main .set-row button{min-height:44px;padding-inline:14px}
+  .switch{display:flex;align-items:center;gap:9px;font-size:12.5px;cursor:pointer;min-height:44px}
+
+  /* Auf dem Telefon: Vollbild, Bereiche als waagerechte Leiste oben. */
+  @media (max-width:760px){
+    .lb{padding:0}
+    .lb-box{width:100%;max-height:100%;height:100%;border-radius:0;border:0}
+    .lb-body{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+    .set-nav{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);
+      padding:9px;gap:7px;scroll-snap-type:x proximity}
+    .set-nav button{width:auto;flex:none;white-space:nowrap;scroll-snap-align:start}
+    .set-nav button small{display:none}
+    .presets{grid-template-columns:1fr}
+    .set-preview .lbl{min-width:0}
+    .set-row .field{min-width:100%}
+  }
+  }
   /* Tag-Editor: Coverfeld links, Felder rechts. */
   .tags-grid{display:grid;grid-template-columns:120px 1fr;gap:16px;align-items:start}
   .tags-cover{display:flex;flex-direction:column;gap:6px}
@@ -364,17 +438,11 @@
       </div>
       <div class="seg" id="format"><button data-v="wav" class="on">WAV</button><button data-v="flac">FLAC</button><button data-v="mp3">MP3</button></div>
       <button class="ghost sm" id="toggle-grid" title="Alle Modelle mit vollständigen Angaben nebeneinander">Alle Modelle</button>
-      <button class="ghost sm" id="toggle-options" title="Zielordner und Metadaten">Optionen</button>
+      <button class="ghost sm" id="toggle-options" title="Tags, Tonart, Tempo, Dateinamen und Zielordner">Einstellungen</button>
       <span class="tag" id="catalog-tag" hidden></span>
     </div>
     <div class="models" id="models"></div>
-    <div class="options" id="options">
-      <div class="checks">
-        <label><input type="checkbox" id="opt-tags" checked> Tempo &amp; Tonart als Tags schreiben</label>
-        <label><input type="checkbox" id="opt-rename"> … auch im Dateinamen</label>
-      </div>
-      <div class="path"><input type="text" id="out" spellcheck="false" autocomplete="off"><button class="ghost sm" id="save-out">Übernehmen</button><button class="ghost sm" id="open-out">Finder</button></div>
-    </div>
+
   </div>
 
   <div class="card" id="jobs-card" hidden>
@@ -423,6 +491,19 @@
 <div class="toasts" id="toasts"></div>
 <div class="overlay" id="overlay"><div><h2>StemLab wurde beendet</h2>Zum erneuten Starten die App im Ordner „Programme" öffnen.</div></div>
 
+<div class="lb" id="set-lb" role="dialog" aria-modal="true" aria-labelledby="set-title">
+  <div class="lb-box">
+    <div class="lb-head">
+      <h3 id="set-title">Einstellungen</h3>
+      <span class="grow"></span>
+      <button class="lb-close" id="set-close" aria-label="Schließen">×</button>
+    </div>
+    <div class="lb-body">
+      <nav class="set-nav" id="set-nav"></nav>
+      <div class="set-main" id="set-main"></div>
+    </div>
+  </div>
+</div>
 <script>
 const $ = (id) => document.getElementById(id);
 const state = window.state = { models: [], selected: null, format: 'wav', jobs: new Map(), mixers: new Map(), quitting: false,
@@ -434,9 +515,7 @@ const SPEED   = { roformer: 2, ensemble_vocal: 1, ensemble_inst: 1, demucs4ft: 1
 const COLOR = { vocals:'#e0567a', instrumental:'#3b6ff0', drums:'#f0a23b', bass:'#7c5cf0', guitar:'#2fb27a', piano:'#3aa8d8', other:'#8b93a7', original:'#8b93a7' };
 const ICON_PLAY = '<svg viewBox="0 0 14 14"><path d="M4 2.5v9l7.5-4.5z" fill="currentColor"/></svg>';
 const ICON_PAUSE = '<svg viewBox="0 0 14 14"><path d="M3.5 2.5h2.5v9H3.5zM8 2.5h2.5v9H8z" fill="currentColor"/></svg>';
-try { state.format = localStorage.getItem('stemlab.format') || 'wav'; state.selected = localStorage.getItem('stemlab.model');
-      $('opt-tags').checked = localStorage.getItem('stemlab.tags') !== '0'; $('opt-rename').checked = localStorage.getItem('stemlab.rename') === '1'; } catch (_) {}
-for (const id of ['opt-tags','opt-rename']) $(id).onchange = () => { try { localStorage.setItem('stemlab.' + id.slice(4), $(id).checked ? '1' : '0'); } catch (_) {} };
+try { state.format = localStorage.getItem('stemlab.format') || 'wav'; state.selected = localStorage.getItem('stemlab.model'); } catch (_) {}
 
 const toast = (text, bad) => { const e = document.createElement('div'); e.className = 'toast' + (bad ? ' bad' : ''); e.textContent = text; $('toasts').appendChild(e); setTimeout(() => e.remove(), 3600); };
 const fmtTime = (s) => isFinite(s) && s >= 0 ? `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}` : '–:––';
@@ -465,7 +544,8 @@ async function loadState() {
   $('banner-conn').classList.remove('show');
   state.models = s.models; state.refineSteps = s.refine_steps || {};
   if (!state.models.some(m => m.key === state.selected && m.available)) { const f = state.models.find(m => m.available); state.selected = f ? f.key : null; }
-  $('out').value = s.output_dir;
+  if (SET.meta) SET.meta.output_dir = s.output_dir;
+  const outEl = $('out'); if (outEl) outEl.value = s.output_dir;
   $('banner-ffmpeg').classList.toggle('show', !s.ffmpeg);
   $('device-pill').className = 'pill ' + (s.device === 'mps' ? 'ok' : 'warn');
   $('device-text').textContent = s.device === 'mps' ? 'Apple GPU · MPS' : 'CPU-Modus';
@@ -633,7 +713,7 @@ $('ana-search').oninput = (e) => {
   searchTimer = setTimeout(() => { state.filter.q = v; renderTable(); }, 140);
 };
 $('ana-reload').onclick = () => loadAnalyses();
-$('ana-open').onclick = () => api('/api/reveal', { path: $('out').value }).catch(err => toast(err.message, true));
+$('ana-open').onclick = () => api('/api/reveal', { path: (SET.meta && SET.meta.output_dir) || '' }).catch(err => toast(err.message, true));
 $('wheel-compat').onclick = () => { state.filter.compat = !state.filter.compat; renderWheel(); renderTable(); };
 $('wheel-clear').onclick = () => { state.filter.cam = null; renderWheel(); renderTable(); };
 
@@ -651,6 +731,267 @@ function flash(card) {
   if (!card) return;
   card.scrollIntoView({ behavior: 'smooth', block: 'center' });
   card.classList.add('flash'); setTimeout(() => card.classList.remove('flash'), 1200);
+}
+
+/* ---------- Einstellungen ---------- */
+/* Eine Lightbox mit Seitenleiste: links die Bereiche, rechts nur der gewählte.
+   Der Nutzer sieht immer höchstens eine Handvoll Entscheidungen statt einer
+   langen Liste, und die Vorschau unten zeigt bei jeder Änderung sofort, was
+   tatsächlich in der Datei landet. */
+
+const SET = { values: {}, meta: null, timer: null, bereich: 'start' };
+
+const TEMPO_DECIMALS = [
+  [0, 'Ganze Zahl', '124'],
+  [1, 'Eine Stelle', '124.0'],
+  [2, 'Zwei Stellen', '124.00'],
+];
+
+const RENAME_PATTERNS = [
+  ['', 'Nicht umbenennen', 'vocals.wav'],
+  ['{name} - {key}', 'Name und Tonart', 'vocals - 06A.wav'],
+  ['{name} - {key} - {tempo}', 'Name, Tonart, Tempo', 'vocals - 06A - 124bpm.wav'],
+  ['{key} - {name}', 'Tonart zuerst', '06A - vocals.wav'],
+  ['{key} - {tempo} - {name}', 'Tonart und Tempo zuerst', '06A - 124bpm - vocals.wav'],
+];
+
+function feld(label, hilfe) {
+  const f = el('div', 'field');
+  f.append(el('span', null, label));
+  if (hilfe) f.append(el('small', null, hilfe));
+  return f;
+}
+
+/** Auswahlknöpfe. Jede Zeile zeigt rechts ihr Beispiel – ohne das müsste man
+ *  raten, was "Tonart und Energie" bedeutet. */
+function auswahl(name, optionen, aktuell, onChange) {
+  const box = el('div', 'choices');
+  for (const [wert, text, beispiel] of optionen) {
+    const l = el('label', 'choice' + (wert === aktuell ? ' on' : ''));
+    const r = el('input'); r.type = 'radio'; r.name = name; r.value = String(wert);
+    r.checked = wert === aktuell;
+    r.onchange = () => {
+      [...box.children].forEach(c => c.classList.remove('on'));
+      l.classList.add('on');
+      onChange(wert);
+    };
+    l.append(r, text);
+    if (beispiel) l.append(el('span', 'ex', beispiel));
+    box.append(l);
+  }
+  return box;
+}
+
+function schalter(label, an, onChange) {
+  const l = el('label', 'switch');
+  const c = el('input'); c.type = 'checkbox'; c.checked = an;
+  c.onchange = () => onChange(c.checked);
+  l.append(c, label);
+  return l;
+}
+
+/** Ändern, Vorschau nachziehen, verzögert speichern. */
+function setzeWert(key, wert, neuZeichnen) {
+  SET.values[key] = wert;
+  clearTimeout(SET.timer);
+  SET.timer = setTimeout(async () => {
+    try { await api('/api/settings', { values: SET.values }); }
+    catch (err) { toast(err.message, true); }
+  }, 400);
+  if (neuZeichnen) zeichneBereich(); else aktualisiereVorschau();
+  zeichneNav();
+}
+
+async function aktualisiereVorschau() {
+  const box = $('set-preview'); if (!box) return;
+  try {
+    const d = await api('/api/settings/preview', { values: SET.values });
+    box.querySelector('[data-p=tag]').textContent = d.tag || '(leer)';
+    box.querySelector('[data-p=file]').textContent = d.filename;
+  } catch (_) { /* Vorschau ist Beiwerk, kein Grund für eine Fehlermeldung */ }
+}
+
+/** Kurzfassung je Bereich – so sieht man in der Leiste, was eingestellt ist. */
+function bereiche() {
+  const v = SET.values, m = SET.meta;
+  return [
+    ['start', 'Schnellstart', 'DJ-Software wählen'],
+    ['tags', 'Tags', v.write_tags ? m.patterns[v.tag_pattern] : 'aus'],
+    ['key', 'Tonart', m.notations[v.key_notation]
+      + (v.key_notation === 'camelot' ? (v.key_leading_zero ? ' (06A)' : ' (6A)') : '')],
+    ['tempo', 'Tempo', `${v.tempo_min}–${v.tempo_max} BPM`],
+    ['files', 'Dateinamen', v.rename_pattern ? 'umbenennen' : 'unverändert'],
+    ['folder', 'Zielordner', (m.output_dir || '').split('/').pop()],
+  ];
+}
+
+function zeichneNav() {
+  const nav = $('set-nav'); if (!nav || !SET.meta) return;
+  nav.innerHTML = '';
+  for (const [key, label, kurz] of bereiche()) {
+    const b = el('button', SET.bereich === key ? 'on' : '');
+    b.append(label, el('small', null, kurz));
+    b.onclick = () => { SET.bereich = key; zeichneBereich(); zeichneNav(); };
+    nav.append(b);
+  }
+}
+
+function zeichneBereich() {
+  const main = $('set-main'); if (!main || !SET.meta) return;
+  const v = SET.values, m = SET.meta;
+  main.innerHTML = '';
+  main.scrollTop = 0;
+
+  if (SET.bereich === 'start') {
+    main.append(el('h4', 'set-h', 'Schnellstart'));
+    main.append(Object.assign(el('p', 'set-lead'), { textContent:
+      'Wähle deine DJ-Software – das setzt alles Passende auf einmal. Feinheiten kannst du links in den anderen Bereichen anpassen.' }));
+    const presets = el('div', 'presets');
+    for (const [key, preset] of Object.entries(m.presets)) {
+      const b = el('button', 'preset');
+      b.append(el('b', null, preset.label), el('small', null, preset.hint));
+      b.onclick = async () => {
+        Object.assign(SET.values, preset.settings);
+        try {
+          await api('/api/settings', { values: SET.values });
+          toast(`Vorlage ${preset.label} übernommen.`);
+        } catch (err) { toast(err.message, true); }
+        zeichneBereich(); zeichneNav();
+      };
+      presets.append(b);
+    }
+    main.append(presets);
+  }
+
+  if (SET.bereich === 'tags') {
+    main.append(el('h4', 'set-h', 'Tags'));
+    main.append(schalter('Tempo und Tonart in die Dateien schreiben', v.write_tags,
+      w => setzeWert('write_tags', w, true)));
+    if (v.write_tags) {
+      const f1 = feld('Was geschrieben wird');
+      f1.append(auswahl('pattern', Object.entries(m.patterns).map(([k, t]) => [k, t, null]),
+        v.tag_pattern, w => setzeWert('tag_pattern', w, false)));
+      const f2 = feld('Wohin', 'Der Kommentar ist die sichere Wahl – ihn lesen alle Programme und er verdrängt nichts.');
+      f2.append(auswahl('target', Object.entries(m.targets).map(([k, t]) => [k, t, null]),
+        v.tag_target, w => setzeWert('tag_target', w, false)));
+      main.append(f1, f2);
+    }
+  }
+
+  if (SET.bereich === 'key') {
+    main.append(el('h4', 'set-h', 'Tonart'));
+    const fN = feld('Schreibweise');
+    fN.append(auswahl('notation', [
+      ['camelot', 'Camelot', v.key_leading_zero ? '06A' : '6A'],
+      ['standard', 'Standard', 'Gm'],
+      ['sharps', 'Kreuze', 'A#m'],
+      ['flats', 'B-Vorzeichen', 'Bbm'],
+    ], v.key_notation, w => setzeWert('key_notation', w, true)));
+    main.append(fN);
+    if (v.key_notation === 'camelot') {
+      main.append(schalter('Führende Null bei einstelligen Zahlen (06A statt 6A)',
+        v.key_leading_zero, w => setzeWert('key_leading_zero', w, true)));
+    }
+  }
+
+  if (SET.bereich === 'tempo') {
+    main.append(el('h4', 'set-h', 'Tempo'));
+    const fD = feld('Nachkommastellen');
+    fD.append(auswahl('decimals', TEMPO_DECIMALS, v.tempo_decimals,
+      w => setzeWert('tempo_decimals', Number(w), false)));
+    main.append(fD);
+    main.append(feld('Bereich', 'Werte außerhalb werden verdoppelt oder halbiert. 70 bis 190 deckt fast alles ab.'));
+    const row = el('div', 'set-row');
+    for (const [key, label] of [['tempo_min', 'Langsamstes'], ['tempo_max', 'Schnellstes']]) {
+      const f = feld(label);
+      const i = el('input'); i.type = 'number'; i.min = 40; i.max = 300; i.value = v[key];
+      i.onchange = () => setzeWert(key, Number(i.value) || v[key], false);
+      f.append(i); row.append(f);
+    }
+    main.append(row);
+  }
+
+  if (SET.bereich === 'files') {
+    main.append(el('h4', 'set-h', 'Dateinamen'));
+    const fP = feld('Muster', 'Betrifft die getrennten Stems, nicht den Mainmix.');
+    fP.append(auswahl('rename', RENAME_PATTERNS, v.rename_pattern,
+      w => setzeWert('rename_pattern', w, false)));
+    main.append(fP);
+  }
+
+  if (SET.bereich === 'folder') {
+    main.append(el('h4', 'set-h', 'Zielordner'));
+    const row = el('div', 'set-row');
+    const inp = el('input'); inp.type = 'text'; inp.id = 'out'; inp.spellcheck = false;
+    inp.value = m.output_dir || '';
+    const speichern = el('button', 'ghost sm', 'Übernehmen'); speichern.id = 'save-out';
+    const finder = el('button', 'ghost sm', 'Finder'); finder.id = 'open-out';
+    const f = feld('Wo die Stems landen'); f.append(inp);
+    row.append(f, speichern, finder);
+    main.append(row);
+    verdrahteOrdner();
+  }
+
+  // Die Vorschau begleitet jeden Bereich außer dem Ordner – dort sagt sie nichts.
+  if (SET.bereich !== 'folder') {
+    const pv = el('div', 'set-preview'); pv.id = 'set-preview';
+    for (const [label, key] of [['Im Tag steht', 'tag'], ['Datei heißt', 'file']]) {
+      const row = el('div', 'row');
+      row.append(el('span', 'lbl', label));
+      const code = el('code'); code.dataset.p = key; code.textContent = '…';
+      row.append(code); pv.append(row);
+    }
+    pv.append(Object.assign(el('small', null, 'Beispiel: g-Moll, 124 BPM, Energie 5'),
+      { style: 'color:var(--muted);font-size:11px' }));
+    main.append(pv);
+    aktualisiereVorschau();
+  }
+}
+
+function verdrahteOrdner() {
+  const inp = $('out'), speichern = $('save-out'), finder = $('open-out');
+  if (!inp || !speichern) return;
+  speichern.onclick = async () => {
+    try {
+      const d = await api('/api/output-dir', { path: inp.value });
+      inp.value = d.output_dir; SET.meta.output_dir = d.output_dir;
+      toast('Zielordner übernommen.'); loadAnalyses(); zeichneNav();
+    } catch (err) { toast(err.message, true); }
+  };
+  inp.onkeydown = (ev) => { if (ev.key === 'Enter') speichern.click(); };
+  if (finder) finder.onclick = () => api('/api/reveal', { path: inp.value }).catch(err => toast(err.message, true));
+}
+
+async function oeffneEinstellungen() {
+  $('set-lb').classList.add('show');
+  // Falls der Vorabruf beim Start nicht durchkam, jetzt nachholen – lieber
+  // einmal kurz warten als ein leerer Dialog.
+  if (!SET.meta) {
+    $('set-main').innerHTML = '<span style="color:var(--muted)">lade …</span>';
+    if (!await ladeEinstellungen()) {
+      $('set-main').textContent = 'Einstellungen konnten nicht geladen werden.';
+      return;
+    }
+  }
+  zeichneNav(); zeichneBereich();
+  $('set-close').focus();
+}
+
+function schliesseEinstellungen() {
+  $('set-lb').classList.remove('show');
+}
+
+async function ladeEinstellungen() {
+  try {
+    const r = await fetch('/api/settings');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    SET.meta = await r.json();
+    SET.values = { ...SET.meta.values };
+    return true;
+  } catch (err) {
+    console.warn('Einstellungen nicht geladen:', err);
+    return false;
+  }
 }
 
 /* ---------- Modell-Select ---------- */
@@ -719,7 +1060,13 @@ $('pick-btn').onclick = (e) => { e.stopPropagation(); state.menuOpen ? closeMenu
 document.addEventListener('click', (e) => { if (state.menuOpen && !$('model-picker').contains(e.target)) closeMenu(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.menuOpen) closeMenu(); });
 $('toggle-grid').onclick = () => { const g = $('models'); g.classList.toggle('show'); $('toggle-grid').classList.toggle('on', g.classList.contains('show')); };
-$('toggle-options').onclick = () => { const o = $('options'); o.classList.toggle('show'); $('toggle-options').classList.toggle('on', o.classList.contains('show')); };
+$('toggle-options').onclick = oeffneEinstellungen;
+$('set-close').onclick = schliesseEinstellungen;
+// Klick auf den abgedunkelten Rand schließt, ein Klick im Dialog nicht.
+$('set-lb').onclick = (ev) => { if (ev.target === $('set-lb')) schliesseEinstellungen(); };
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && $('set-lb').classList.contains('show')) schliesseEinstellungen();
+});
 const renderFormat = () => { for (const b of $('format').querySelectorAll('button')) b.classList.toggle('on', b.dataset.v === state.format); };
 $('format').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; state.format = b.dataset.v; try { localStorage.setItem('stemlab.format', state.format); } catch (_) {} renderFormat(); };
 
@@ -760,9 +1107,6 @@ function renderJob(d) {
     const key = el('span', 'fact'); const unsure = a.key_confidence < 0.25 && a.key_alt;
     const cam = camParse(a.camelot);
     key.innerHTML = `<b>${a.key_de}</b>${unsure ? `<small>oder ${a.key_alt}</small>` : ''}` +
-    const hue = camHue(a.camelot);
-    if (hue !== null) { const chip = key.querySelector('.cam');
-      chip.dataset.cam = a.camelot.trim().toUpperCase(); chip.style.setProperty('--cam-h', hue); }
       (cam ? `<span class="cam" style="background:${camColor(cam.n, cam.mode)}">${a.camelot}</span>` : '');
     key.title = `${a.key} · Sicherheit ${Math.round(a.key_confidence * 100)} %`;
     facts.append(bpm, key);
@@ -828,17 +1172,6 @@ function buildResult(e, d) {
   e._lyricsBtn = lyricsBtn;
 }
 function togglePanel(e, sel, loader) { const p = e.querySelector(sel); if (p.classList.contains('show')) { p.classList.remove('show'); return; } p.classList.add('show'); if (!p.dataset.loaded) { p.dataset.loaded = '1'; loader(p); } }
-// --- Camelot-Farben ---------------------------------------------------------
-// Farbton je Position auf dem Rad (1 Grün, 4 Orange, 6 Rot, 8 Magenta,
-// 10 Blau, 12 Cyan). A-Tonarten (Moll) blasser, B-Tonarten (Dur) kräftiger.
-const CAM_HUE = {1:145,2:120,3:95,4:38,5:18,6:353,7:330,8:300,9:275,10:250,11:210,12:178};
-function camHue(code){
-  const m = /^(\d{1,2})([AB])$/.exec((code || '').trim().toUpperCase());
-  if (!m) return null;
-  const hue = CAM_HUE[+m[1]];
-  return hue === undefined ? null : hue;
-}
-
 // --- Tag-Editor -------------------------------------------------------------
 const TAG_LABELS = [['title','Titel'],['artist','Artist'],['album','Album'],['label','Label'],
   ['remixer','Remix'],['composer','Composer'],['grouping','Grouping'],['genre','Genre'],
@@ -1138,7 +1471,8 @@ async function send(files) {
   for (const file of files) {
     if (!file.size) { toast(`„${file.name}" ist leer – Ordner können nicht verarbeitet werden.`, true); continue; }
     const fd = new FormData(); fd.append('file', file); fd.append('model', state.selected); fd.append('output_format', state.format);
-    fd.append('tags', $('opt-tags').checked ? '1' : '0'); fd.append('rename', $('opt-rename').checked ? '1' : '0');
+    fd.append('tags', SET.values.write_tags === false ? '0' : '1');
+    fd.append('rename', SET.values.rename_pattern ? '1' : '0');
     try { const r = await fetch('/api/jobs', { method: 'POST', body: fd }); if (!r.ok) { const t = await r.json().catch(() => ({})); toast(t.detail || `Upload fehlgeschlagen (${r.status})`, true); } }
     catch (_) { toast('Server nicht erreichbar.', true); }
   }
@@ -1151,9 +1485,6 @@ document.addEventListener('dragenter', (ev) => { ev.preventDefault(); depth++; d
 document.addEventListener('dragover', (ev) => ev.preventDefault());
 document.addEventListener('dragleave', (ev) => { ev.preventDefault(); if (--depth <= 0) { depth = 0; drop.classList.remove('hot'); } });
 document.addEventListener('drop', (ev) => { ev.preventDefault(); depth = 0; drop.classList.remove('hot'); if (ev.dataTransfer && ev.dataTransfer.files.length) send([...ev.dataTransfer.files]); });
-$('save-out').onclick = async () => { try { const d = await api('/api/output-dir', { path: $('out').value }); $('out').value = d.output_dir; toast('Zielordner übernommen.'); loadAnalyses(); } catch (err) { toast(err.message, true); } };
-$('out').onkeydown = (ev) => { if (ev.key === 'Enter') $('save-out').click(); };
-$('open-out').onclick = () => api('/api/reveal', { path: $('out').value }).catch(err => toast(err.message, true));
 $('retry').onclick = () => loadState();
 $('quit').onclick = async () => { if (!confirm('StemLab beenden? Laufende Aufträge werden abgebrochen.')) return; state.quitting = true; for (const m of state.mixers.values()) if (m.playing) m.pause(); try { await fetch('/api/quit', { method: 'POST' }); } catch (_) {} $('overlay').classList.add('show'); };
 // Auf dem Handy feuert resize beim Scrollen (Adressleiste) – ohne Bremse würde
@@ -1167,7 +1498,9 @@ window.addEventListener('resize', () => {
     for (const m of state.mixers.values()) for (const t of m.tracks) m.draw(t);
   }, 180);
 }, { passive: true });
+ladeEinstellungen();
 loadState().then((ok) => { if (ok) connect(); else setTimeout(() => loadState().then(ok2 => ok2 && connect()), 2500); });
 </script>
+
 </body>
 </html>

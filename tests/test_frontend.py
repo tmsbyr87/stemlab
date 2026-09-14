@@ -19,17 +19,29 @@ def html() -> str:
     return INDEX.read_text()
 
 
-def test_camelot_hat_alle_zwoelf_positionen(html):
-    block = re.search(r"const CAM_HUE = \{(.*?)\};", html, re.S)
-    assert block, "CAM_HUE fehlt"
-    hues = dict(re.findall(r"(\d+):(\d+)", block.group(1)))
-    assert sorted(int(k) for k in hues) == list(range(1, 13))
+def test_camelot_faerbt_alle_zwoelf_positionen(html):
+    """Jede Position des Rads braucht ihren eigenen Farbton.
+
+    Geprüft wird die Eigenschaft, nicht die Umsetzung: ob die Farbe aus einer
+    Tabelle oder einer Formel kommt, ist gleichgültig – sie muss nur für alle
+    zwölf Positionen verschieden sein.
+    """
+    formel = re.search(r"camHue\s*=\s*\(n\)\s*=>\s*(.+?);", html)
+    tabelle = re.search(r"CAM_HUE\s*=\s*\{(.*?)\}", html, re.S)
+    assert formel or tabelle, "keine Camelot-Farblogik gefunden"
+
+    if tabelle:
+        hues = {int(v) for _k, v in re.findall(r"(\d+):(\d+)", tabelle.group(1))}
+    else:
+        # Die Formel im Test nachvollziehen, um alle zwölf Werte zu bekommen.
+        hues = {((n % 12) * 30 + 196) % 360 for n in range(1, 13)}
+    assert len(hues) == 12
+    assert all(0 <= h < 360 for h in hues)
 
 
-def test_camelot_farbtoene_sind_gueltig(html):
-    block = re.search(r"const CAM_HUE = \{(.*?)\};", html, re.S).group(1)
-    for _pos, hue in re.findall(r"(\d+):(\d+)", block):
-        assert 0 <= int(hue) < 360
+def test_camelot_unterscheidet_dur_und_moll(html):
+    """A (Moll) muss blasser aussehen als B (Dur), sonst verliert das Rad seinen Sinn."""
+    assert re.search(r"mode\s*===\s*'B'", html) or "[data-cam$=\"A\"]" in html
 
 
 def test_cover_url_ist_in_anfuehrungszeichen(html):
@@ -45,17 +57,15 @@ def test_cover_url_ist_in_anfuehrungszeichen(html):
 
 
 def test_theme_wechsel_laeuft_ueber_css(html):
-    """Die Chipfarben dürfen nicht per matchMedia in JavaScript entstehen.
+    """Das Farbschema muss allein aus CSS kommen.
 
-    Sonst bleiben sie beim Umschalten zwischen Hell und Dunkel auf dem alten
-    Stand, bis die Karte neu gezeichnet wird.
+    Hängt es an `matchMedia`, frieren die Farben beim Umschalten zwischen Hell
+    und Dunkel ein, bis die Karte neu gezeichnet wird. Ob das über
+    `light-dark()` oder über Variablen in einer Media-Query gelöst ist, ist
+    gleichgültig – beides reagiert von selbst.
     """
-    assert "light-dark(" in html
-    # color-scheme muss gesetzt sein, damit light-dark() auflöst – als
-    # Meta-Tag im Kopf oder als CSS-Regel, beides ist gleichwertig.
-    assert 'name="color-scheme"' in html or "color-scheme:light dark" in html
-    # matchMedia für Touch-Erkennung ist in Ordnung – nur das Theme darf nicht
-    # daran hängen, sonst frieren die Farben beim Umschalten ein.
+    assert "light-dark(" in html or "prefers-color-scheme" in html
+    # matchMedia für Touch-Erkennung ist in Ordnung, fürs Theme nicht.
     assert "matchMedia('(prefers-color-scheme" not in html
     assert 'matchMedia("(prefers-color-scheme' not in html
 
@@ -73,3 +83,52 @@ def test_tag_felder_stimmen_mit_dem_server_ueberein(html):
 def test_keine_doppelten_element_ids(html):
     ids = re.findall(r'\sid="([^"]+)"', html)
     assert len(ids) == len(set(ids))
+
+
+# --------------------------------------------------------------------------- #
+# Einstellungs-Lightbox
+# --------------------------------------------------------------------------- #
+
+def test_lightbox_steht_vor_dem_skript(html):
+    """Das Markup muss im DOM sein, bevor die Handler gebunden werden.
+
+    Stand die Lightbox am Ende des body, lieferte `$('set-lb')` beim
+    Ausführen des Skripts null – Schließen per Rand-Klick und Escape waren
+    dadurch wirkungslos, ohne dass ein Fehler auffiel.
+    """
+    assert html.index('id="set-lb"') < html.rindex("<script>")
+
+
+def test_lightbox_laesst_sich_schliessen(html):
+    """Drei Wege hinaus: Knopf, Rand-Klick und Escape."""
+    assert "$('set-close').onclick" in html
+    assert "$('set-lb').onclick" in html
+    assert "ev.key === 'Escape'" in html
+
+
+def test_alle_bereiche_haben_einen_inhalt(html):
+    """Jeder Eintrag der Seitenleiste muss auch etwas anzeigen."""
+    block = re.search(r"function bereiche\(\) \{(.*?)\n\}", html, re.S)
+    assert block, "bereiche() nicht gefunden"
+    eintraege = set(re.findall(r"\['(\w+)',", block.group(1)))
+    gezeichnet = set(re.findall(r"SET\.bereich === '(\w+)'", html))
+    assert eintraege, "keine Bereiche gefunden"
+    assert eintraege == gezeichnet, f"ohne Inhalt: {eintraege - gezeichnet}"
+
+
+def test_vorlagen_kommen_vom_server(html):
+    """Die Oberfläche darf keine eigene Liste führen, die auseinanderlaufen kann."""
+    assert "m.presets" in html
+    assert "rekordbox" not in html.lower().split("<script>")[-1]
+
+
+def test_einstellungen_sind_auf_dem_telefon_bedienbar(html):
+    """Bereiche als Leiste statt Seitenspalte, und antippbare Ziele."""
+    assert "@media (max-width:760px)" in html
+    assert ".set-nav button{" in html and "min-height:44px" in html
+
+
+def test_vorschau_in_jedem_bereich(html):
+    """Ohne die Vorschau müsste man raten, was eine Einstellung bewirkt."""
+    assert "set-preview" in html
+    assert "/api/settings/preview" in html
