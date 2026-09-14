@@ -238,7 +238,7 @@ liegen.
 venv/bin/python -m pytest
 ```
 
-92 Tests, rund anderthalb Sekunden. Sie brauchen **keine Audiodateien**: das
+113 Tests, rund anderthalb Sekunden. Sie brauchen **keine Audiodateien**: das
 Testmaterial wird erzeugt, damit die Wahrheit per Konstruktion feststeht. Ein
 Raster aus exakt 124 BPM muss 124 BPM ergeben, eine g-Moll-Kadenz muss g-Moll
 ergeben. So laufen die Tests überall, ohne dass Musik im Repo liegt.
@@ -256,6 +256,7 @@ zerbrach. Jeder Test trägt im Docstring, worum es ging.
 | `tests/test_tags.py` | Tags und Cover in WAV und FLAC |
 | `tests/test_api.py` | HTTP-Schnittstelle, Pfad- und Host-Schutz |
 | `tests/test_frontend.py` | Camelot-Farben, Cover-URL, Feldabgleich |
+| `tests/test_formats.py` | Zeitstempel, Dateinamen, Akkorde, MIDI-Klick, Sidecars |
 
 Bei jedem Push laufen sie über GitHub Actions auf macOS gegen Python 3.10 bis
 3.12, dazu `shellcheck` über die Installationsskripte.
