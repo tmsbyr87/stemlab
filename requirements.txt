@@ -1,0 +1,11 @@
+# StemLab – Laufzeitabhängigkeiten (macOS / Apple Silicon)
+audio-separator[cpu]>=0.47      # Roformer, MDX, Demucs, Ensembles
+audioread>=3.0                  # von audio-separator fest importiert, neuere librosa-Versionen ziehen es nicht mehr mit
+beat_this>=1.1                  # Taktraster (Beats/Downbeats)
+scipy>=1.11                     # Bandfilter für die Tonartbestimmung
+mutagen>=1.47                   # Tags in WAV/FLAC/MP3
+faster-whisper>=1.1             # Lyrics (Rückfall, CPU)
+mlx-whisper>=0.4; sys_platform == "darwin" and platform_machine == "arm64"   # Lyrics auf der Apple-GPU
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9

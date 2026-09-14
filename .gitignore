@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# macOS
+.DS_Store
+._*
+
+# Laufzeit: Modelle, Konfiguration und Ergebnisse liegen außerhalb des Repos,
+# aber ein Testlauf im Projektordner soll nicht versehentlich mitkommen.
+*.wav
+*.flac
+*.mp3
+*.m4a
+*.mid
+analysis.json
+beats.json
+waveform.json
+lyrics.json
+
+# Logs
+*.log
+
+# Arbeitsreste anderer Sitzungen
+_to_delete/
