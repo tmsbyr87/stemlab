@@ -193,23 +193,57 @@ Falls der Nutzer nach der Installation Änderungen möchte:
 Konventionen: Kommentare und Oberfläche auf Deutsch, Code englisch benannt.
 Kommentare erklären das **Warum**, nicht das Was.
 
+### Tests
+
+```bash
+venv/bin/python -m pytest
+```
+
+92 Tests, rund anderthalb Sekunden, **keine Audiodateien nötig** – das
+Material wird synthetisch erzeugt, seine Wahrheit steht dadurch per
+Konstruktion fest. Ein Raster aus exakt 124 BPM muss 124 BPM ergeben, eine
+g-Moll-Kadenz muss g-Moll ergeben.
+
+| Datei | Deckt ab |
+|---|---|
+| `tests/test_tempo.py` | Tempo aus dem Beat-Raster, Störungen, Faltung, Snapping |
+| `tests/test_key.py` | Tonart, Bandbegrenzung, Camelot-Tabelle |
+| `tests/test_lyrics.py` | Filterung erfundener Zeilen, Floskelerkennung |
+| `tests/test_tags.py` | Tags und Cover in WAV und FLAC |
+| `tests/test_api.py` | HTTP-Schnittstelle, Pfad- und Host-Schutz |
+| `tests/test_frontend.py` | Camelot-Farben, Cover-URL, Feldabgleich mit dem Server |
+
+Die Tests sind **Regressionstests für real aufgetretene Fehler**. Jeder
+prüfbare Fall stand einmal falsch im Code. Wenn einer rot wird, hast du sehr
+wahrscheinlich einen dieser Fehler wieder eingebaut – lies den Docstring, dort
+steht, worum es ging.
+
+Bei jedem Push laufen sie über GitHub Actions auf macOS gegen Python 3.10,
+3.11 und 3.12, dazu `shellcheck` über die Installationsskripte.
+
+Änderst du etwas an Analyse, Tags oder API, **schreib den Test zuerst** und
+sieh ihn scheitern. Sonst weisst du nicht, ob er den Fehler überhaupt fangen
+würde.
+
 ### Offene Punkte – hier ist Vorsicht angebracht
 
-Der ehrliche Stand, damit du nicht in dieselben Fallen tappst:
+Was die Tests **nicht** abdecken, damit du dich nicht in falscher Sicherheit
+wiegst:
 
-- **Es gibt keine Tests.** Kein pytest, keine CI. Jede Änderung an der Analyse
-  musst du an echten Audiodateien gegenprüfen, sonst merkt es niemand.
-- **Die Tonarterkennung ist an zwei Tracks verifiziert**, nicht an einem
-  Testsatz. Sie stimmt dort mit Mixed In Key überein, aber das ist eine dünne
-  Grundlage.
+- **Kein echtes Audio.** Getestet wird gegen synthetische Signale. Dass die
+  Tonart an echter Musik stimmt, ist an zwei Tracks gegen Mixed In Key
+  belegt – nicht an einem Testsatz.
 - **Die Schwellen der Lyrics-Filterung sind an einem einzigen Track
-  kalibriert** (`SILENCE_DB = -40`, `FILLER_DB = -20` in `postprocess.py`). Bei
-  sehr leise abgemischtem oder geflüstertem Gesang könnten echte Zeilen
-  wegfallen. Wenn du daran drehst, miss die Pegel echter und erfundener
-  Segmente, statt zu raten.
+  kalibriert** (`SILENCE_DB = -40`, `FILLER_DB = -20` in `postprocess.py`).
+  Die Tests prüfen, dass die Logik greift, nicht dass die Werte für jedes
+  Material passen. Bei sehr leise abgemischtem oder geflüstertem Gesang
+  könnten echte Zeilen wegfallen. Wenn du daran drehst, miss die Pegel echter
+  und erfundener Segmente, statt zu raten.
 - **Das Tempo geht von einem durchgehenden DAW-Raster aus.** Bei Musik mit
   echten Tempowechseln sollte die Downbeat-Gegenprobe greifen und die
-  Konfidenz senken – getestet ist dieser Fall nicht.
+  Konfidenz senken – dieser Fall ist nicht getestet.
+- **Die Trennmodelle selbst sind nicht getestet.** Sie brauchen GPU und
+  Gigabyte an Gewichten; geprüft wird nur, was ohne sie läuft.
 - **Die Analyse läuft vor der Trennung** auf dem Mix, nicht auf den Stems. Für
   die Tonart wäre der `other`-Stem sauberer; die Bandbegrenzung auf
   100–1000 Hz war die günstigere Lösung und reicht bislang.

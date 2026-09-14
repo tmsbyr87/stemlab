@@ -11,6 +11,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10%20%E2%80%93%203.12-3776ab)
 ![Offline](https://img.shields.io/badge/Datenschutz-100%25%20offline-1f9d63)
 ![Formate](https://img.shields.io/badge/Ausgabe-WAV%20%7C%20FLAC%20%7C%20MP3-6366f1)
+[![Tests](https://github.com/tmsbyr87/stemlab/actions/workflows/tests.yml/badge.svg)](https://github.com/tmsbyr87/stemlab/actions/workflows/tests.yml)
 ![Lizenz](https://img.shields.io/badge/Lizenz-MIT-8b5cf6)
 
 </div>
@@ -204,6 +205,7 @@ vorhanden.
 | `install.sh` | Einzeiler-Installation: lädt das ZIP und ruft `setup.sh` |
 | `StemLab installieren.command` | Doppelklick-Installation aus dem entpackten Ordner |
 | `AGENTS.md` | Anleitung für Coding-Agenten: Installation, Stolperstellen, offene Punkte |
+| `tests/` | pytest-Suite, synthetisches Material statt Audiodateien |
 
 ## Sicherheit
 
@@ -229,6 +231,38 @@ liegen.
   Pegel jedes Segments im Vocal-Stem: unter −40 dB fliegt es immer raus,
   bekannte Floskeln schon unter −20 dB. Whispers eigenes `no_speech_prob`
   taugt dafür nicht, es stand bei genau diesen Zeilen auf 0,000.
+
+## Entwicklung
+
+```bash
+venv/bin/python -m pytest
+```
+
+92 Tests, rund anderthalb Sekunden. Sie brauchen **keine Audiodateien**: das
+Testmaterial wird erzeugt, damit die Wahrheit per Konstruktion feststeht. Ein
+Raster aus exakt 124 BPM muss 124 BPM ergeben, eine g-Moll-Kadenz muss g-Moll
+ergeben. So laufen die Tests überall, ohne dass Musik im Repo liegt.
+
+Es sind Regressionstests für tatsächlich aufgetretene Fehler – Tempo, das
+durch Zwischenschläge davonlief, eine Tonart, die der Kick verfälschte,
+erfundene Lyrics über Stille, eine Cover-URL, die an Klammern im Ordnernamen
+zerbrach. Jeder Test trägt im Docstring, worum es ging.
+
+| Datei | Deckt ab |
+|---|---|
+| `tests/test_tempo.py` | Tempo aus dem Beat-Raster, Störungen, Faltung, Snapping |
+| `tests/test_key.py` | Tonart, Bandbegrenzung, Camelot-Tabelle |
+| `tests/test_lyrics.py` | Filterung erfundener Zeilen |
+| `tests/test_tags.py` | Tags und Cover in WAV und FLAC |
+| `tests/test_api.py` | HTTP-Schnittstelle, Pfad- und Host-Schutz |
+| `tests/test_frontend.py` | Camelot-Farben, Cover-URL, Feldabgleich |
+
+Bei jedem Push laufen sie über GitHub Actions auf macOS gegen Python 3.10 bis
+3.12, dazu `shellcheck` über die Installationsskripte.
+
+Nicht abgedeckt: die Trennmodelle selbst (brauchen GPU und Gigabyte an
+Gewichten) und echtes Audio. Was das für Änderungen bedeutet, steht in
+[AGENTS.md](AGENTS.md).
 
 ## Lizenz
 

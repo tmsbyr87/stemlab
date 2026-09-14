@@ -37,7 +37,8 @@ mkdir -p "$DEST"
 for item in "$SRC"/*; do
   name="$(basename "$item")"
   [[ "$name" == "venv" ]] && continue
-  rm -rf "$DEST/$name"
+  # ${DEST:?} bricht ab, statt bei leerer Variable "/$name" zu löschen.
+  rm -rf "${DEST:?}/$name"
   mv "$item" "$DEST/$name"
 done
 

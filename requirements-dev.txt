@@ -1,0 +1,5 @@
+# Nur für die Entwicklung – die normale Installation braucht das nicht.
+#   venv/bin/pip install -r requirements-dev.txt
+-r requirements.txt
+pytest>=8.0
+httpx>=0.27          # Testclient von FastAPI

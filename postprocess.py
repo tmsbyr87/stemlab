@@ -528,7 +528,7 @@ def _fmt_srt(t: float) -> str:
 HALLUCINATIONS = re.compile(
     r"^(thank you|thanks for watching|thanks|subscribe|please subscribe"
     r"|like and subscribe|bye|bye bye|goodbye|the end|you|okay|ok"
-    r"|untertitel[ a-zä]*|amara\.org|copyright.*|© .*"
+    r"|untertitel.*|.*amara\.org.*|copyright.*|© .*"
     r"|vielen dank|danke|tschüss|abonniert.*)[.!?\s]*$",
     re.IGNORECASE,
 )
