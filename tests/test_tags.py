@@ -5,15 +5,12 @@ FLAC als Vorbis-Kommentare mit eigenem Bildblock. Der Tag-Editor muss in allen
 dreien lesen, schreiben, leeren und Cover setzen können.
 """
 
-import struct
-import zlib
-
 import numpy as np
 import pytest
 import soundfile as sf
 
 import postprocess
-from conftest import SR
+from conftest import SR, tiny_png
 
 FIELDS = {
     "title": "We Are (Remix)", "artist": "AM I RIGHT", "album": "Testalbum",
@@ -21,15 +18,6 @@ FIELDS = {
     "grouping": "Gruppe", "genre": "Techno", "year": "2026",
     "key": "Gm", "bpm": "124", "comment": "06A - 5",
 }
-
-
-def tiny_png() -> bytes:
-    def chunk(kind: bytes, data: bytes) -> bytes:
-        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-
-    header = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header)
-            + chunk(b"IDAT", zlib.compress(b"\x00\xff\x00\x00")) + chunk(b"IEND", b""))
 
 
 @pytest.fixture(params=["wav", "flac"])
@@ -114,3 +102,66 @@ def test_umlaute_und_sonderzeichen(audio):
     read = postprocess.read_tags(audio)
     assert read["title"] == "Grüße aus Köln – ößä"
     assert read["artist"] == "Æther"
+
+
+# --------------------------------------------------------------------------- #
+# tag_folder: der Weg, den jede fertige Trennung nimmt
+# --------------------------------------------------------------------------- #
+
+ANALYSE = {"bpm": 124.0, "key_id3": "Gm", "camelot": "6A"}
+
+
+@pytest.fixture
+def ordner(tmp_path):
+    """Ergebnisordner mit zwei Stems und dem Mainmix."""
+    for name in ("vocals.wav", "drums.wav", "original.wav"):
+        sf.write(tmp_path / name, np.zeros(SR), SR)
+    return tmp_path
+
+
+def test_tag_folder_schreibt_in_alle_stems(ordner):
+    dateien = postprocess.tag_folder(ordner, ANALYSE, "Testsong", False, lambda _m: None)
+    assert len(dateien) == 2                       # original.wav ist kein Stem
+    for path in dateien:
+        tags = postprocess.read_tags(path)
+        assert tags["bpm"] == "124"
+        assert tags["key"] == "Gm"
+
+
+def test_tag_folder_laesst_den_mainmix_in_ruhe(ordner):
+    """`original.wav` bekommt seine Tags über den Editor, nicht automatisch."""
+    postprocess.tag_folder(ordner, ANALYSE, "Testsong", False, lambda _m: None)
+    assert (ordner / "original.wav").exists()
+    assert postprocess.read_tags(ordner / "original.wav")["bpm"] == ""
+
+
+def test_umbenennen_mit_tempo_und_camelot(ordner):
+    dateien = postprocess.tag_folder(ordner, ANALYSE, "Testsong", True, lambda _m: None)
+    namen = sorted(p.name for p in dateien)
+    assert namen == ["drums - 124bpm - 6A.wav", "vocals - 124bpm - 6A.wav"]
+
+
+def test_zweites_umbenennen_haengt_nichts_an(ordner):
+    """Ein zweiter Lauf darf nicht 'vocals - 124bpm - 6A - 124bpm - 6A.wav' erzeugen."""
+    postprocess.tag_folder(ordner, ANALYSE, "Testsong", True, lambda _m: None)
+    dateien = postprocess.tag_folder(ordner, ANALYSE, "Testsong", True, lambda _m: None)
+    assert all(p.name.count("bpm") == 1 for p in dateien)
+
+
+def test_ohne_camelot_nur_das_tempo(ordner):
+    dateien = postprocess.tag_folder(ordner, {"bpm": 124.0, "key_id3": "Gm", "camelot": "–"},
+                                     "Testsong", True, lambda _m: None)
+    assert sorted(p.name for p in dateien) == ["drums - 124bpm.wav", "vocals - 124bpm.wav"]
+
+
+def test_ohne_tempo_wird_nicht_umbenannt(ordner):
+    """Ohne erkanntes Tempo ergäbe 'vocals - 0bpm.wav' keinen Sinn."""
+    dateien = postprocess.tag_folder(ordner, {"bpm": 0, "key_id3": "", "camelot": ""},
+                                     "Testsong", True, lambda _m: None)
+    assert sorted(p.name for p in dateien) == ["drums.wav", "vocals.wav"]
+
+
+def test_leerer_ordner_meldet_nichts(tmp_path):
+    gesagt = []
+    assert postprocess.tag_folder(tmp_path, ANALYSE, "Leer", False, gesagt.append) == []
+    assert gesagt == []

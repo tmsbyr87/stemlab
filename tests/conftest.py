@@ -57,8 +57,15 @@ def progression(chords: list[tuple[str, str, str]], repeats: int = 4) -> np.ndar
     return y / np.abs(y).max() * 0.8
 
 
-def kick_track(length: int, every: float = 0.5, gain: float = 2.5) -> np.ndarray:
-    """Bassdrum: Sinus-Sweep von 120 auf 45 Hz, wie in elektronischer Musik."""
+def kick_track(length: int, every: float = 0.5, gain: float = 20.0) -> np.ndarray:
+    """Bassdrum: Sinus-Sweep von 120 auf 45 Hz, wie in elektronischer Musik.
+
+    Der Pegel ist bewusst hoch. Ein dezenter Kick kippt die Tonart nicht, der
+    Test wäre dann wertlos – gemessen: ab Faktor 12 liefert das ungefilterte
+    Chromagramm eine falsche Tonart, mit Bandfilter bleibt sie richtig. In
+    einem fertig gemasterten Dance-Track dominiert der Kick das Spektrum
+    ähnlich deutlich.
+    """
     out = np.zeros(length)
     dur = int(0.12 * SR)
     t = np.arange(dur) / SR
@@ -66,6 +73,20 @@ def kick_track(length: int, every: float = 0.5, gain: float = 2.5) -> np.ndarray
     for start in range(0, length - dur, int(SR * every)):
         out[start:start + dur] += impulse
     return out * gain
+
+
+def tiny_png() -> bytes:
+    """Ein 1x1-PNG – kleinstmögliches gültiges Bild für Cover-Tests."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+    header = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    signatur = bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    return (signatur + chunk(b"IHDR", header)
+            + chunk(b"IDAT", zlib.compress(b"\x00\xff\x00\x00")) + chunk(b"IEND", b""))
 
 
 @pytest.fixture

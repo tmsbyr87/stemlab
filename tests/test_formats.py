@@ -90,10 +90,19 @@ def test_stille_takte_werden_als_nc_markiert():
 
 
 def test_akkordblatt_bricht_um():
+    """Vier Akkorde je Zeile – ein Takt pro Zelle, wie auf einem Leadsheet."""
     chords = [{"chord": name} for name in ["Gm", "C", "F", "D#", "Gm", "C"]]
     zeilen = analysis._chord_sheet(chords, per_line=4).splitlines()
     assert len(zeilen) == 2
     assert zeilen[0].count("|") == 5
+    assert zeilen[1].count("|") == 3          # zweite Zeile hat nur zwei Akkorde
+
+
+def test_akkordblatt_standard_sind_vier_pro_zeile():
+    """Die Standardbelegung muss dieselbe sein wie der explizite Aufruf."""
+    chords = [{"chord": "Gm"} for _ in range(8)]
+    assert analysis._chord_sheet(chords) == analysis._chord_sheet(chords, per_line=4)
+    assert len(analysis._chord_sheet(chords).splitlines()) == 2
 
 
 def test_leeres_akkordblatt():
@@ -109,6 +118,33 @@ def test_klickspur_ist_gueltiges_midi(tmp_path):
     assert data[:4] == b"MThd"
     assert b"MTrk" in data
     assert data.endswith(b"\xff\x2f\x00")
+
+
+def test_klickspur_unterscheidet_downbeats(tmp_path):
+    """Downbeat und Beat brauchen verschiedene Töne, sonst hört man den Takt nicht.
+
+    Note 76 mit Velocity 110 für die Eins, Note 77 mit 80 für die übrigen –
+    ohne diese Prüfung liesse sich die Unterscheidung entfernen, ohne dass
+    ein Test es merkt.
+    """
+    path = tmp_path / "click.mid"
+    beats = list(beat_grid(124.0, seconds=20.0))
+    analysis.write_click_midi(path, beats, beats[::4], 124.0)
+    data = path.read_bytes()
+    downbeats = data.count(bytes([0x99, 76, 110]))
+    normale = data.count(bytes([0x99, 77, 80]))
+    assert downbeats == len(beats[::4])
+    assert normale == len(beats) - len(beats[::4])
+
+
+def test_klickspur_traegt_das_tempo(tmp_path):
+    """Das Tempo-Event muss den Mikrosekunden pro Viertel entsprechen."""
+    path = tmp_path / "click.mid"
+    beats = list(beat_grid(124.0, seconds=10.0))
+    analysis.write_click_midi(path, beats, beats[::4], 124.0)
+    data = path.read_bytes()
+    erwartet = int(60_000_000 / 124.0).to_bytes(3, "big")
+    assert b"\xff\x51\x03" + erwartet in data
 
 
 def test_sidecars_werden_geschrieben(tmp_path):

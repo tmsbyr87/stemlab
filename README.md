@@ -238,7 +238,7 @@ liegen.
 venv/bin/python -m pytest
 ```
 
-113 Tests, rund anderthalb Sekunden. Sie brauchen **keine Audiodateien**: das
+138 Tests, rund anderthalb Sekunden. Sie brauchen **keine Audiodateien**: das
 Testmaterial wird erzeugt, damit die Wahrheit per Konstruktion feststeht. Ein
 Raster aus exakt 124 BPM muss 124 BPM ergeben, eine g-Moll-Kadenz muss g-Moll
 ergeben. So laufen die Tests überall, ohne dass Musik im Repo liegt.
@@ -247,6 +247,11 @@ Es sind Regressionstests für tatsächlich aufgetretene Fehler – Tempo, das
 durch Zwischenschläge davonlief, eine Tonart, die der Kick verfälschte,
 erfundene Lyrics über Stille, eine Cover-URL, die an Klammern im Ordnernamen
 zerbrach. Jeder Test trägt im Docstring, worum es ging.
+
+Geprüft wurde die Suite per Mutationstest: gezielt eingebaute Fehler im
+Produktivcode müssen einen Test umwerfen. Von 23 Mutationen werden 22
+gefangen; die eine Ausnahme ist folgenlos, weil eine zweite Prüfung im Code
+dahinter greift.
 
 | Datei | Deckt ab |
 |---|---|

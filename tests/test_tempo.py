@@ -68,12 +68,17 @@ def test_wenige_beats_liefern_geringe_konfidenz():
     assert conf < 0.4
 
 
-def test_zu_wenige_beats_ergeben_kein_tempo():
-    assert analysis._tempo_from_beats(np.array([0.0, 0.5, 1.0])) == (0.0, 0.0)
+@pytest.mark.parametrize("anzahl", [0, 1, 2, 3])
+def test_zu_wenige_beats_ergeben_kein_tempo(anzahl):
+    """Unter vier Beats ist keine Regression möglich – an der Kante geprüft."""
+    beats = np.arange(anzahl) * 0.5
+    assert analysis._tempo_from_beats(beats) == (0.0, 0.0)
 
 
-def test_leere_eingabe_stuerzt_nicht_ab():
-    assert analysis._tempo_from_beats(np.array([])) == (0.0, 0.0)
+def test_vier_beats_reichen_gerade():
+    """Genau an der Grenze muss ein Tempo herauskommen."""
+    bpm, _ = analysis._tempo_from_beats(np.arange(4) * 0.5)
+    assert bpm == pytest.approx(120.0, abs=0.1)
 
 
 def test_identische_zeitstempel_stuerzen_nicht_ab():

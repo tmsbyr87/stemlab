@@ -34,26 +34,46 @@ def test_dur_kadenz(c_major):
 def test_tonart_ueberlebt_eine_bassdrum(g_minor):
     """Mit Kick darf die Tonart nicht kippen.
 
-    Im vollen Band schmiert der breitbandige Kick über alle zwölf Chroma-Bins
-    und drückt das gemittelte Profil flach; am Referenztrack kam dadurch
-    C-Dur statt g-Moll heraus. Deshalb ist das Chroma für die Tonart auf
-    100–1000 Hz begrenzt.
+    Das ist der Fehler, der am Referenztrack C-Dur statt g-Moll lieferte: der
+    breitbandige Kick schmiert über alle zwölf Chroma-Bins und drückt das
+    gemittelte Profil so flach, dass die Korrelation zwischen benachbarten
+    Quinten praktisch würfelt.
     """
     mix = g_minor + kick_track(len(g_minor))
     mix = mix / np.abs(mix).max() * 0.9
     assert key_of(mix)["key"] == "G minor"
 
 
-def test_bandfilter_entfernt_den_bass():
-    """Die Bandbegrenzung muss tiefe Frequenzen tatsächlich dämpfen."""
-    t = np.arange(int(3 * SR)) / SR
-    sub = np.sin(2 * np.pi * 50 * t)          # unter dem Durchlassbereich
-    mid = np.sin(2 * np.pi * 440 * t)         # mittendrin
-    import scipy.signal as signal
+def test_ohne_bandfilter_kippt_die_tonart(g_minor):
+    """Gegenprobe: ohne die Bandbegrenzung muss derselbe Mix falsch liegen.
 
-    sos = signal.butter(4, [100 / (SR / 2), 1000 / (SR / 2)], btype="band", output="sos")
-    assert np.sqrt((signal.sosfiltfilt(sos, sub) ** 2).mean()) < 0.1
-    assert np.sqrt((signal.sosfiltfilt(sos, mid) ** 2).mean()) > 0.5
+    Ohne diesen Test wäre der vorige wertlos – er bliebe auch dann grün, wenn
+    der Filter in `key_chroma` ersatzlos entfernt würde. Hier wird belegt,
+    dass die Bandbegrenzung den Unterschied macht und nicht bloß mitläuft.
+    """
+    import librosa
+
+    mix = g_minor + kick_track(len(g_minor))
+    mix = mix / np.abs(mix).max() * 0.9
+    voll = librosa.feature.chroma_cqt(y=mix, sr=SR, hop_length=2048)
+    assert analysis._key(voll.mean(axis=1))["key"] != "G minor"
+
+
+def test_key_chroma_ist_nicht_das_volle_chromagramm(g_minor):
+    """`key_chroma` muss sich messbar vom ungefilterten Chromagramm unterscheiden.
+
+    Ein direkter Pegeltest scheitert daran, dass `chroma_cqt` jeden Frame auf
+    1,0 normiert und die Grundfrequenz auch nach der Dämpfung noch findet.
+    Geprüft wird deshalb, dass überhaupt gefiltert wird – dass es das
+    Richtige bewirkt, zeigt `test_ohne_bandfilter_kippt_die_tonart`.
+    """
+    import librosa
+
+    mix = g_minor + kick_track(len(g_minor))
+    mix = mix / np.abs(mix).max() * 0.9
+    voll = librosa.feature.chroma_cqt(y=mix, sr=SR, hop_length=2048)
+    gefiltert = analysis.key_chroma(mix)
+    assert not np.allclose(voll, gefiltert)
 
 
 def test_stille_ergibt_keine_tonart():

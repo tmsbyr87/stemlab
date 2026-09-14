@@ -199,7 +199,7 @@ Kommentare erklären das **Warum**, nicht das Was.
 venv/bin/python -m pytest
 ```
 
-113 Tests, rund anderthalb Sekunden, **keine Audiodateien nötig** – das
+138 Tests, rund anderthalb Sekunden, **keine Audiodateien nötig** – das
 Material wird synthetisch erzeugt, seine Wahrheit steht dadurch per
 Konstruktion fest. Ein Raster aus exakt 124 BPM muss 124 BPM ergeben, eine
 g-Moll-Kadenz muss g-Moll ergeben.
