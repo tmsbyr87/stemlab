@@ -523,6 +523,70 @@ def _fmt_srt(t: float) -> str:
     return f"{s // 3600:02d}:{(s % 3600) // 60:02d}:{s % 60:02d},{ms:03d}"
 
 
+# Floskeln, die Whisper über Stille legt – aus Untertiteln von YouTube-Videos
+# angelernt. Sie tauchen wortgleich auf, wenn gar nichts gesungen wird.
+HALLUCINATIONS = re.compile(
+    r"^(thank you|thanks for watching|thanks|subscribe|please subscribe"
+    r"|like and subscribe|bye|bye bye|goodbye|the end|you|okay|ok"
+    r"|untertitel[ a-zä]*|amara\.org|copyright.*|© .*"
+    r"|vielen dank|danke|tschüss|abonniert.*)[.!?\s]*$",
+    re.IGNORECASE,
+)
+
+# Grenzen in dB unter dem Spitzenpegel des Stems.
+SILENCE_DB = -40.0      # darunter ist nichts mehr zu hören: immer verwerfen
+FILLER_DB = -20.0       # darüber darf auch eine Floskel echt sein
+
+
+def _segment_level(y: np.ndarray, sr: int, peak: float, start: float, end: float) -> float:
+    """Effektivpegel eines Abschnitts in dB unter dem Spitzenpegel."""
+    a = max(0, int(start * sr))
+    b = min(len(y), int(end * sr))
+    if b <= a or peak <= 0:
+        return -99.0
+    chunk = y[a:b]
+    rms = float(np.sqrt((chunk ** 2).mean()))
+    return 20.0 * math.log10(max(rms, 1e-9) / peak)
+
+
+def drop_hallucinations(segments: list[dict], audio: Path, say: LogFn) -> list[dict]:
+    """Segmente entfernen, die über Stille erfunden wurden.
+
+    Whisper füllt stille Passagen mit Floskeln aus seinen Trainingsdaten
+    ("Thank you.", "Untertitel von …"). Die eigene Unsicherheit hilft dabei
+    nicht: gemessen stand `no_speech_prob` bei genau diesen Segmenten auf
+    0,000. Verlässlich ist nur das Audio selbst – ein Vocal-Stem ist in den
+    Pausen wirklich still, während gesungene Zeilen 20 bis 30 dB darüber
+    liegen. Sehr leise Segmente fliegen daher immer raus, bekannte Floskeln
+    schon bei mäßig leisen.
+    """
+    if not segments:
+        return segments
+    try:
+        import librosa
+
+        y, sr = librosa.load(str(audio), sr=16000, mono=True)
+    except Exception as exc:
+        LOG.warning("Stille-Prüfung übersprungen: %s", exc)
+        return segments
+    peak = float(np.abs(y).max()) if len(y) else 0.0
+    if peak <= 0:
+        return []
+
+    kept: list[dict] = []
+    for seg in segments:
+        level = _segment_level(y, sr, peak, seg["start"], seg["end"])
+        filler = bool(HALLUCINATIONS.match(seg["text"].strip()))
+        if level < SILENCE_DB or (filler and level < FILLER_DB):
+            continue
+        kept.append(seg)
+
+    removed = len(segments) - len(kept)
+    if removed:
+        say(f"{removed} erfundene Zeile(n) über Stille verworfen.")
+    return kept
+
+
 def transcribe(folder: Path, language: str | None, say: LogFn) -> list[Path]:
     vocals = next((p for p in stem_files(folder) if stem_name(p) == "vocals"), None)
     src = vocals or next(iter(stem_files(folder)), None)
@@ -537,7 +601,19 @@ def transcribe(folder: Path, language: str | None, say: LogFn) -> list[Path]:
 
         say(f"Whisper ({model_name}) auf der Apple-GPU …")
         repo = f"mlx-community/whisper-{model_name}" if "/" not in model_name else model_name
-        result = mlx_whisper.transcribe(str(src), path_or_hf_repo=repo, language=language or None, word_timestamps=False)
+        # condition_on_previous_text=False ist entscheidend: sonst übernimmt
+        # Whisper eine einmal erfundene Zeile als Kontext und wiederholt sie
+        # über den ganzen Track. hallucination_silence_threshold überspringt
+        # Passagen, in denen nichts gesungen wird.
+        result = mlx_whisper.transcribe(
+            str(src), path_or_hf_repo=repo, language=language or None,
+            word_timestamps=True,
+            condition_on_previous_text=False,
+            no_speech_threshold=0.6,
+            logprob_threshold=-1.0,
+            compression_ratio_threshold=2.4,
+            hallucination_silence_threshold=2.0,
+        )
         detected = result.get("language", detected)
         for s in result.get("segments", []):
             segments.append({"start": float(s["start"]), "end": float(s["end"]), "text": s["text"].strip()})
@@ -547,12 +623,20 @@ def transcribe(folder: Path, language: str | None, say: LogFn) -> list[Path]:
         fw_name = {"large-v3-turbo": "turbo"}.get(model_name, model_name)
         say(f"Whisper ({fw_name}, faster-whisper) …")
         model = WhisperModel(fw_name, device="cpu", compute_type="int8")
-        segs, info = model.transcribe(str(src), language=language or None, vad_filter=True, beam_size=5)
+        segs, info = model.transcribe(
+            str(src), language=language or None, vad_filter=True, beam_size=5,
+            condition_on_previous_text=False,
+            no_speech_threshold=0.6,
+            log_prob_threshold=-1.0,
+            compression_ratio_threshold=2.4,
+            hallucination_silence_threshold=2.0,
+        )
         detected = info.language
         for s in segs:
             segments.append({"start": float(s.start), "end": float(s.end), "text": s.text.strip()})
 
     segments = [s for s in segments if s["text"]]
+    segments = drop_hallucinations(segments, src, say)
     txt = folder / "lyrics.txt"
     lrc = folder / "lyrics.lrc"
     srt = folder / "lyrics.srt"

@@ -29,7 +29,7 @@ deinem Mac – keine Uploads, keine Warteschlange, keine Längenbegrenzung.
 | 🎹 **Tonart** | Bandbegrenztes CQT-Chromagramm mit Albrecht-Shanahan-Profilen, inklusive Camelot-Code |
 | 🎨 **Camelot-Farben** | Der Key-Chip ist wie auf dem Rad eingefärbt, Moll blasser als Dur |
 | 🎼 **Akkorde** | Ein Akkord pro Takt, klickbar zum Springen |
-| 🔤 **Lyrics** | Whisper auf der Apple-GPU, als TXT, LRC, SRT und JSON |
+| 🔤 **Lyrics** | Whisper auf der Apple-GPU, als TXT, LRC, SRT und JSON, ohne erfundene Zeilen |
 | 🎚️ **Mixer** | Alle Stems synchron, Pegel, Mute, Solo und A/B gegen das Original |
 | 🏷️ **Tags & Cover** | ID3- und Vorbis-Tags samt Coverbild direkt in der Oberfläche bearbeiten |
 | ✂️ **Loops** | Am Downbeat geschnitten, 2, 4 oder 8 Takte, tempo-getaggt |
@@ -120,7 +120,7 @@ Playhead mit; ein Klick auf einen Takt oder eine Zeile springt dorthin.
 | **Vocals veredeln** | Kette aus De-Reverb/De-Echo (Mel-Roformer, SDR 13,5), De-Noise (SDR 28) und Lead/Backing-Trennung, jeder Schritt auf dem Ergebnis des vorigen | `refined/vocals_dry.wav`, `…_dry_clean.wav`, `…_lead.wav`, `vocals_backing.wav` |
 | **Loops** | Jeden Stem am Downbeat in 2/4/8-Takt-Loops schneiden, mit Fades, 24 Bit, tempo-getaggt | `loops/<stem>_takte_001-004_124bpm.wav` |
 | **Pitch / Tempo** | Halbtöne und Ziel-BPM über Rubber Band (in Homebrew-ffmpeg enthalten), Rückfall auf Phasenvocoder | `shifted/<stem>_+2st_x1.05.wav` |
-| **Lyrics** | Whisper auf dem Vocal-Stem – `mlx-whisper` auf der Apple-GPU, sonst `faster-whisper` | `lyrics.txt`, `.lrc` (Karaoke-Zeitstempel), `.srt`, `.json` |
+| **Lyrics** | Whisper auf dem Vocal-Stem – `mlx-whisper` auf der Apple-GPU, sonst `faster-whisper`. Erfundene Zeilen über Stille werden verworfen | `lyrics.txt`, `.lrc` (Karaoke-Zeitstempel), `.srt`, `.json` |
 | **Mix exportieren** | Pegel und Stummschaltungen aus dem Mixer als Datei (z. B. Vocals −6 dB als Übungsmix) | `mixes/<Name>.wav` |
 | **Tags & Cover** | Titel, Artist, Album, Label, Remix, Composer, Grouping, Genre, Jahr, Key, Tempo und Kommentar bearbeiten, Cover als JPEG oder PNG setzen – für den Mainmix (`original.wav`) oder einen einzelnen Stem | schreibt direkt in die Datei |
 
@@ -162,6 +162,13 @@ liegen.
   Modell nicht laden (77 MB, braucht beim ersten Mal Internet).
 - **Lyrics leer:** Whisper hat keinen Gesang gefunden – oder der Vocal-Stem ist
   fast still. Die Sprache lässt sich im Knopf fest vorgeben.
+- **Lyrics mit erfundenen Zeilen:** Whisper legt über stille Passagen gern
+  Floskeln aus seinen Trainingsdaten („Thank you.", „Untertitel von …").
+  StemLab entkoppelt die Segmente voneinander
+  (`condition_on_previous_text=False`) und misst nach dem Transkribieren den
+  Pegel jedes Segments im Vocal-Stem: unter −40 dB fliegt es immer raus,
+  bekannte Floskeln schon unter −20 dB. Whispers eigenes `no_speech_prob`
+  taugt dafür nicht, es stand bei genau diesen Zeilen auf 0,000.
 - **Alles entfernen:** `~/Applications/StemLab.app`, den Projektordner,
   `~/Library/Application Support/StemLab`, `~/Library/Logs/StemLab.log` und
   `~/.cache/torch/hub/checkpoints/beat_this-*.ckpt` löschen.
