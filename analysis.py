@@ -59,6 +59,9 @@ class Analysis:
     key_de: str = "unbekannt"       # "a-Moll"
     key_id3: str = ""               # "Am"
     camelot: str = "–"
+    key_tonic: str = ""             # "G" – für andere Schreibweisen
+    key_mode: str = ""              # "minor"
+    energy: int = 0                 # 1–10, wie in Mixed In Key
     key_confidence: float = 0.0
     key_alt: str = ""
     beats: list[float] = field(default_factory=list)
@@ -282,9 +285,44 @@ def _key(chroma_mean: np.ndarray) -> dict:
         "key_de": f"{NOTE_NAMES_DE[best[1]]}-Dur" if mode == "major" else f"{NOTE_NAMES_DE[best[1]].lower()}-Moll",
         "key_id3": id3_key(tonic, mode),
         "camelot": CAMELOT.get((tonic, mode), "–"),
+        "key_tonic": tonic,
+        "key_mode": mode,
         "key_confidence": round(float(min(1.0, max(0.0, (best[0] - alt[0]) * 4))), 2),
         "key_alt": f"{alt_tonic}-Dur" if alt[2] == "major" else f"{alt_tonic.lower()}-Moll",
     }
+
+
+# --------------------------------------------------------------------------- #
+# Energie
+# --------------------------------------------------------------------------- #
+
+
+def _energy(y: np.ndarray) -> int:
+    """Energielevel 1 bis 10, wie es DJ-Software erwartet.
+
+    Mixed In Key nennt das "Energy". Gemeint ist der wahrgenommene Druck eines
+    Tracks, nicht seine Lautheit: ein leiser Ambient-Track und ein leiser
+    Techno-Track unterscheiden sich im Anteil tiefer Frequenzen und in der
+    Dichte der Anschläge. Beides fließt hier ein.
+    """
+    import librosa
+
+    if not y.size:
+        return 0
+    # Wie dicht sind die Anschläge? Ein treibender Track hat viele.
+    onset = librosa.onset.onset_strength(y=y, sr=SAMPLE_RATE)
+    dichte = float(np.mean(onset)) if onset.size else 0.0
+
+    # Wie viel Energie steckt im Bass? Vier Sekunden reichen für ein Bild.
+    spec = np.abs(librosa.stft(y[: SAMPLE_RATE * 60], n_fft=2048))
+    freqs = librosa.fft_frequencies(sr=SAMPLE_RATE, n_fft=2048)
+    gesamt = float(spec.sum()) or 1.0
+    tief = float(spec[freqs < 250].sum()) / gesamt
+
+    # Beide Anteile auf 1–10 abbilden. Die Faktoren sind an typischer
+    # Clubmusik ausgerichtet und bewusst großzügig geschnitten.
+    wert = dichte / 3.0 * 5.0 + tief * 12.0
+    return int(max(1, min(10, round(wert))))
 
 
 # --------------------------------------------------------------------------- #
@@ -434,6 +472,7 @@ def analyze(path: Path, on_log: Callable[[str], None] | None = None) -> Analysis
     # Tonartbestimmung nicht.
     for k, v in _key(key_chroma(y, hop).mean(axis=1)).items():
         setattr(result, k, v)
+    result.energy = _energy(y)
     result.chords = _chords(chroma, hop, downbeats, beats, seconds)
     result.chord_sheet = _chord_sheet(result.chords, per_line=4)
     return result

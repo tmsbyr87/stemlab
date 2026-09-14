@@ -51,8 +51,13 @@ def test_theme_wechsel_laeuft_ueber_css(html):
     Stand, bis die Karte neu gezeichnet wird.
     """
     assert "light-dark(" in html
-    assert "color-scheme:light dark" in html
-    assert "matchMedia" not in html
+    # color-scheme muss gesetzt sein, damit light-dark() auflöst – als
+    # Meta-Tag im Kopf oder als CSS-Regel, beides ist gleichwertig.
+    assert 'name="color-scheme"' in html or "color-scheme:light dark" in html
+    # matchMedia für Touch-Erkennung ist in Ordnung – nur das Theme darf nicht
+    # daran hängen, sonst frieren die Farben beim Umschalten ein.
+    assert "matchMedia('(prefers-color-scheme" not in html
+    assert 'matchMedia("(prefers-color-scheme' not in html
 
 
 def test_tag_felder_stimmen_mit_dem_server_ueberein(html):

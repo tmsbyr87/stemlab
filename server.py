@@ -343,6 +343,49 @@ def state() -> JSONResponse:
     )
 
 
+@app.get("/api/analyses")
+def analyses() -> JSONResponse:
+    """Schlanke Übersicht aller bisherigen Analysen – ohne die Stems selbst zu laden."""
+    root = output_root()
+    items = []
+    if root.is_dir():
+        for folder in root.iterdir():
+            if not folder.is_dir():
+                continue
+            stems = postprocess.stem_files(folder)
+            if not stems:
+                continue
+            data = {}
+            try:
+                data = json.loads((folder / "analysis.json").read_text())
+            except Exception:
+                pass
+            items.append({
+                "id": "lib-" + uuid.uuid5(uuid.NAMESPACE_URL, str(folder)).hex[:10],
+                "name": folder.name,
+                "folder": str(folder),
+                "bpm": data.get("bpm") or 0,
+                "bpm_alt": data.get("bpm_alt") or 0,
+                "bpm_confidence": data.get("bpm_confidence") or 0,
+                "key": data.get("key") or "",
+                "key_de": data.get("key_de") or "",
+                "key_alt": data.get("key_alt") or "",
+                "camelot": data.get("camelot") or "",
+                "key_confidence": data.get("key_confidence") or 0,
+                "seconds": data.get("seconds_analyzed") or 0,
+                "bars": len(data.get("downbeats") or []),
+                "stems": [postprocess.stem_name(p) for p in stems],
+                "format": stems[0].suffix.lstrip(".").lower(),
+                "created": folder.stat().st_mtime,
+                "has_lyrics": (folder / "lyrics.json").exists(),
+                "has_chords": bool(data.get("chords")),
+                "has_loops": (folder / "loops").is_dir(),
+                "has_refined": (folder / "refined").is_dir(),
+            })
+    items.sort(key=lambda x: x["created"], reverse=True)
+    return JSONResponse({"items": items[:500], "total": len(items)})
+
+
 @app.get("/api/library")
 def library() -> JSONResponse:
     root = output_root()

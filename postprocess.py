@@ -62,6 +62,161 @@ def stem_name(path: Path) -> str:
 # --------------------------------------------------------------------------- #
 
 
+# --------------------------------------------------------------------------- #
+# Einstellungen für Tags, Tonart und Tempo
+# --------------------------------------------------------------------------- #
+
+# Was in das gewählte Feld geschrieben wird. Die Beispiele zeigen g-Moll bei
+# 124 BPM und Energie 5.
+TAG_PATTERNS = {
+    "key":              "Nur die Tonart",
+    "energy":           "Nur die Energie",
+    "key_energy":       "Tonart und Energie",
+    "key_tempo":        "Tonart und Tempo",
+    "key_tempo_energy": "Tonart, Tempo und Energie",
+    "tempo_key_energy": "Tempo, Tonart und Energie",
+}
+
+# Wohin. "comment" ist der Standard, weil Rekordbox, Traktor und Serato ihn
+# alle lesen und keine andere Information verdrängt wird.
+TAG_TARGETS = {
+    "comment":  "Kommentarfeld",
+    "grouping": "Grouping-Feld",
+    "title":    "Vor den Titel",
+    "artist":   "Vor den Artist",
+    "none":     "Nirgendwo",
+}
+
+KEY_NOTATIONS = {
+    "camelot":  "Camelot (6A)",
+    "standard": "Standard (Gm)",
+    "sharps":   "Kreuze (A#m)",
+    "flats":    "B-Vorzeichen (Bbm)",
+}
+
+# Tonartnamen mit B-Vorzeichen – Rekordbox und Traktor zeigen sie so an.
+FLAT_NAMES = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"]
+SHARP_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+DEFAULT_SETTINGS = {
+    "tag_pattern": "key_tempo",
+    "tag_target": "comment",
+    "key_notation": "camelot",
+    "key_leading_zero": True,
+    "tempo_decimals": 0,
+    "tempo_min": 70,
+    "tempo_max": 190,
+    "rename_pattern": "",          # leer = nicht umbenennen
+    "write_tags": True,
+}
+
+# Vorlagen: ein Klick statt zwölf Entscheidungen. Die Werte folgen dem, was die
+# jeweilige Software tatsächlich liest.
+PRESETS = {
+    "rekordbox": {
+        "label": "Rekordbox",
+        "hint": "Camelot im Kommentar, Tonart zusätzlich im Key-Feld",
+        "settings": {"tag_pattern": "key_energy", "tag_target": "comment",
+                     "key_notation": "camelot", "key_leading_zero": True,
+                     "tempo_decimals": 2},
+    },
+    "traktor": {
+        "label": "Traktor",
+        "hint": "Standard-Schreibweise, Traktor rechnet selbst in Camelot um",
+        "settings": {"tag_pattern": "key_tempo", "tag_target": "comment",
+                     "key_notation": "standard", "key_leading_zero": False,
+                     "tempo_decimals": 1},
+    },
+    "serato": {
+        "label": "Serato",
+        "hint": "Camelot vor dem Titel, damit die Sortierung nach Tonart greift",
+        "settings": {"tag_pattern": "key_energy", "tag_target": "comment",
+                     "key_notation": "camelot", "key_leading_zero": True,
+                     "tempo_decimals": 0},
+    },
+}
+
+
+def settings(config: dict | None = None) -> dict:
+    """Einstellungen mit Standardwerten auffüllen."""
+    merged = dict(DEFAULT_SETTINGS)
+    for key, value in (config or {}).get("tagging", {}).items():
+        if key in merged:
+            merged[key] = value
+    return merged
+
+
+def format_key(camelot: str, tonic: str, mode: str, opts: dict) -> str:
+    """Tonart in der eingestellten Schreibweise."""
+    notation = opts.get("key_notation", "camelot")
+    if notation == "camelot":
+        if not camelot or camelot == "–":
+            return ""
+        if opts.get("key_leading_zero") and len(camelot) == 2:
+            return "0" + camelot
+        return camelot
+    if not tonic:
+        return ""
+    suffix = "m" if mode == "minor" else ""
+    if notation == "standard":
+        return tonic + suffix
+    index = SHARP_NAMES.index(tonic) if tonic in SHARP_NAMES else -1
+    if index < 0:
+        return tonic + suffix
+    names = FLAT_NAMES if notation == "flats" else SHARP_NAMES
+    return names[index] + suffix
+
+
+def format_tempo(bpm: float, opts: dict) -> str:
+    """Tempo mit den eingestellten Nachkommastellen, in den Bereich gefaltet."""
+    if not bpm:
+        return ""
+    low = float(opts.get("tempo_min") or 0)
+    high = float(opts.get("tempo_max") or 0)
+    if low > 0 and high > low:
+        while bpm < low and bpm * 2 <= high:
+            bpm *= 2
+        while bpm > high and bpm / 2 >= low:
+            bpm /= 2
+    decimals = int(opts.get("tempo_decimals", 0))
+    return f"{bpm:.{decimals}f}" if decimals else str(int(round(bpm)))
+
+
+def build_tag_text(analysis: dict, opts: dict) -> str:
+    """Den Text zusammensetzen, der ins gewählte Feld geschrieben wird."""
+    key = format_key(analysis.get("camelot", ""), analysis.get("key_tonic", ""),
+                     analysis.get("key_mode", ""), opts)
+    tempo = format_tempo(float(analysis.get("bpm") or 0), opts)
+    energy = str(analysis.get("energy") or "")
+
+    teile = {"key": [key], "energy": [energy], "key_energy": [key, energy],
+             "key_tempo": [key, tempo], "key_tempo_energy": [key, tempo, energy],
+             "tempo_key_energy": [tempo, key, energy]}
+    gewaehlt = teile.get(opts.get("tag_pattern", "key_tempo"), [key, tempo])
+    return " - ".join(t for t in gewaehlt if t)
+
+
+def build_filename(stem: str, analysis: dict, opts: dict) -> str:
+    """Dateiname nach dem eingestellten Muster, ohne Endung."""
+    muster = opts.get("rename_pattern") or ""
+    if not muster:
+        return stem
+    key = format_key(analysis.get("camelot", ""), analysis.get("key_tonic", ""),
+                     analysis.get("key_mode", ""), opts)
+    tempo = format_tempo(float(analysis.get("bpm") or 0), opts)
+    ersetzt = (muster.replace("{name}", stem)
+                     .replace("{key}", key)
+                     .replace("{tempo}", tempo + "bpm" if tempo else ""))
+    # Doppelte Trenner entfernen, die durch leere Felder entstehen.
+    ersetzt = re.sub(r"\s*-\s*-\s*", " - ", ersetzt).strip(" -")
+    return sanitize_filename(ersetzt) or stem
+
+
+def sanitize_filename(name: str) -> str:
+    """Zeichen entfernen, die im Dateisystem Ärger machen."""
+    return re.sub(r'[/\\:*?"<>|]', "", name).strip()
+
+
 def tag_file(path: Path, bpm: float, key_id3: str, camelot: str, song: str, stem: str) -> None:
     from mutagen.flac import FLAC
     from mutagen.id3 import ID3, TALB, TBPM, TIT2, TKEY, COMM, ID3NoHeaderError
