@@ -37,25 +37,64 @@ deinem Mac – keine Uploads, keine Warteschlange, keine Längenbegrenzung.
 | 🎤 **Vocals veredeln** | De-Reverb, De-Noise und Lead/Backing in einer Kette |
 | 🔒 **Offline** | Kein Upload, keine Anmeldung, keine Längenbegrenzung |
 
-## Einrichtung
+## Installation
 
-**Voraussetzungen:** macOS 13 oder neuer auf Apple Silicon (M1 bis M4),
-[Homebrew](https://brew.sh) und rund 3 GB Platz für Modelle.
+Du brauchst nur einen Mac mit Apple Silicon (M1 bis M4) und macOS 13 oder
+neuer. Alles Weitere – Python, ffmpeg, Homebrew – richtet StemLab selbst ein.
+Kein Entwicklerwerkzeug nötig.
+
+### Der einfache Weg
+
+1. **[StemLab herunterladen](https://github.com/tmsbyr87/stemlab/archive/refs/heads/main.zip)** (ZIP, rund 200 KB)
+2. Im Finder auf die geladene Datei **doppelklicken** – macOS entpackt sie zu
+   einem Ordner `stemlab-main`
+3. In dem Ordner auf **„StemLab installieren"** klicken – und zwar mit
+   **Rechtsklick → Öffnen**, dann im Hinweis noch einmal auf **Öffnen**
+
+> **Warum Rechtsklick?** macOS misstraut allem, was aus dem Internet kommt, und
+> ein normaler Doppelklick bringt nur die Meldung „… kann nicht geöffnet
+> werden". Über Rechtsklick → Öffnen bekommst du stattdessen einen Hinweis mit
+> einem Öffnen-Knopf. Das ist einmalig, danach nie wieder.
+
+Es öffnet sich ein Terminal-Fenster, in dem der Fortschritt durchläuft. Beim
+ersten Mal dauert das ein paar Minuten, weil Python-Pakete geladen werden.
+Am Ende startet StemLab von selbst und liegt ab dann in deinem
+Programme-Ordner.
+
+### Der Weg über das Terminal
+
+Wenn du ohnehin im Terminal arbeitest, geht es auch mit einer Zeile:
 
 ```bash
-git clone https://github.com/tmsbyr87/stemlab.git
-cd stemlab
-./setup.sh
+curl -fsSL https://raw.githubusercontent.com/tmsbyr87/stemlab/main/install.sh | bash
 ```
 
-`setup.sh` prüft Homebrew, ffmpeg und Python, legt eine isolierte Umgebung in
-`venv/` an und baut `~/Applications/StemLab.app`. Starten per
-Doppelklick oder mit `./start.sh`; ein zweiter Doppelklick öffnet nur ein neues
-Fenster zur laufenden Instanz. Beenden über „Beenden" oben rechts.
+Das lädt StemLab nach `~/Library/Application Support/StemLab/app`, richtet
+alles ein und startet es. Kein `git` nötig – auf einem frischen Mac würde das
+sonst erst die Xcode Command Line Tools nachziehen wollen.
 
-Modelle werden beim ersten Gebrauch geladen und unter
-`~/Library/Application Support/StemLab/models` behalten (Trennmodelle 65 MB bis
-650 MB, Beat This! 77 MB, Whisper rund 1,5 GB). Danach läuft alles offline.
+### Danach
+
+StemLab liegt als App in **~/Applications** und startet per Doppelklick. Ein
+zweiter Doppelklick öffnet nur ein weiteres Fenster zur laufenden Instanz.
+Beenden über „Beenden" oben rechts.
+
+Die Modelle lädt StemLab erst, wenn du sie zum ersten Mal benutzt, und behält
+sie dann unter `~/Library/Application Support/StemLab/models` (Trennmodelle
+65 MB bis 650 MB, Beat This! 77 MB, Whisper rund 1,5 GB). Ab da läuft alles
+offline.
+
+### Aktualisieren
+
+Dieselbe Zeile noch einmal ausführen, oder das ZIP neu laden und den
+Installer erneut anklicken. Die Modelle bleiben erhalten, nur der Code wird
+ersetzt.
+
+### Entfernen
+
+Lösche `~/Applications/StemLab.app`, den Projektordner,
+`~/Library/Application Support/StemLab`, `~/Library/Logs/StemLab.log` und
+`~/.cache/torch/hub/checkpoints/beat_this-*.ckpt`.
 
 ## Was beim Hineinziehen passiert
 
@@ -144,6 +183,8 @@ vorhanden.
 | `postprocess.py` | Tags und Cover, Wellenformen, Loops, Pitch/Tempo, Mix, Vocal-Veredelung, Lyrics |
 | `static/index.html` | Oberfläche samt Web-Audio-Mixer, eine Datei |
 | `setup.sh` / `start.sh` | Einrichtung, App-Bundle, Start im Terminal |
+| `install.sh` | Einzeiler-Installation: lädt das ZIP und ruft `setup.sh` |
+| `StemLab installieren.command` | Doppelklick-Installation aus dem entpackten Ordner |
 
 ## Sicherheit
 
@@ -169,9 +210,6 @@ liegen.
   Pegel jedes Segments im Vocal-Stem: unter −40 dB fliegt es immer raus,
   bekannte Floskeln schon unter −20 dB. Whispers eigenes `no_speech_prob`
   taugt dafür nicht, es stand bei genau diesen Zeilen auf 0,000.
-- **Alles entfernen:** `~/Applications/StemLab.app`, den Projektordner,
-  `~/Library/Application Support/StemLab`, `~/Library/Logs/StemLab.log` und
-  `~/.cache/torch/hub/checkpoints/beat_this-*.ckpt` löschen.
 
 ## Lizenz
 
