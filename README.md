@@ -73,6 +73,24 @@ Das lädt StemLab nach `~/Library/Application Support/StemLab/app`, richtet
 alles ein und startet es. Kein `git` nötig – auf einem frischen Mac würde das
 sonst erst die Xcode Command Line Tools nachziehen wollen.
 
+### Der Weg über einen Coding-Agenten
+
+Wenn du Claude Code, Codex oder Cursor benutzt, gib dort einfach das ein:
+
+```text
+Installiere StemLab auf diesem Mac:
+https://github.com/tmsbyr87/stemlab
+Folge dabei der AGENTS.md im Repo.
+```
+
+Der Agent liest die [AGENTS.md](AGENTS.md) und weiß damit, was zu tun ist:
+Vorprüfungen, Ablauf, und wie er die typischen Stolperstellen behebt – enges
+Python-Fenster, fehlendes ffmpeg, CPU- statt GPU-Modus, belegte Ports. Beim
+Homebrew-Passwort übergibt er an dich, das kann kein Agent übernehmen.
+
+Der Umweg lohnt sich vor allem, wenn die normale Installation bei dir hakt:
+ein Agent liest die Fehlermeldung und reagiert darauf, statt nur abzubrechen.
+
 ### Danach
 
 StemLab liegt als App in **~/Applications** und startet per Doppelklick. Ein
@@ -185,6 +203,7 @@ vorhanden.
 | `setup.sh` / `start.sh` | Einrichtung, App-Bundle, Start im Terminal |
 | `install.sh` | Einzeiler-Installation: lädt das ZIP und ruft `setup.sh` |
 | `StemLab installieren.command` | Doppelklick-Installation aus dem entpackten Ordner |
+| `AGENTS.md` | Anleitung für Coding-Agenten: Installation, Stolperstellen, offene Punkte |
 
 ## Sicherheit
 

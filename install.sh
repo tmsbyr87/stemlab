@@ -4,7 +4,8 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/tmsbyr87/stemlab/main/install.sh | bash
 #
-# Lädt das Projekt als ZIP nach ~/Applications/StemLab und richtet es ein.
+# Lädt das Projekt als ZIP nach ~/Library/Application Support/StemLab/app
+# und richtet es ein.
 # Bewusst ohne git: auf einem frischen Mac würde `git clone` erst die Xcode
 # Command Line Tools nachinstallieren wollen. curl und unzip sind immer da.
 # ---------------------------------------------------------------------------
