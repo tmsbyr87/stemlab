@@ -19,6 +19,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -110,6 +111,9 @@ DEFAULT_SETTINGS = {
     "tempo_max": 190,
     "rename_pattern": "",          # leer = nicht umbenennen
     "write_tags": True,
+    "export_rekordbox": False,
+    "export_traktor": False,
+    "export_cues": True,
 }
 
 # Vorlagen: ein Klick statt zwölf Entscheidungen. Die Werte folgen dem, was die
@@ -217,6 +221,297 @@ def build_filename(stem: str, analysis: dict, opts: dict) -> str:
 def sanitize_filename(name: str) -> str:
     """Zeichen entfernen, die im Dateisystem Ärger machen."""
     return re.sub(r'[/\\:*?"<>|]', "", name).strip()
+
+
+# --------------------------------------------------------------------------- #
+# Cue-Points aus der Analyse
+# --------------------------------------------------------------------------- #
+
+# Farben wie in Rekordbox: Rot für den Einstieg, Grün für Aufbauten,
+# Blau für ruhige Stellen, Orange für Drops.
+CUE_COLORS = {
+    "Intro":      (0x30, 0xE1, 0xEB),
+    "Aufbau":     (0x2D, 0xE1, 0x2D),
+    "Drop":       (0xE1, 0x8E, 0x2D),
+    "Breakdown":  (0x2D, 0x8E, 0xE1),
+    "Ruhiger":    (0xE1, 0x2D, 0x8E),
+}
+
+MAX_CUES = 8            # so viele Hotcues haben CDJs und Traktor
+CUE_MIN_ABSTAND = 16    # Takte – enger nebeneinander ergeben Cues keinen Sinn
+
+
+def _bar_times(downbeats: list[float], total: float) -> tuple[float, float, int]:
+    """Anfang, Taktlänge und Taktzahl aus den Downbeats.
+
+    Gerechnet wird über den Median, nicht über die Liste selbst: Beat This!
+    lässt einzelne Downbeats aus, die Zeiten liefen sonst über den Track
+    hinweg auseinander (gemessen: 24 Ausreißer bei 240 Takten).
+    """
+    if len(downbeats) < 4:
+        return 0.0, 0.0, 0
+    diffs = np.diff(np.asarray(downbeats, dtype=float))
+    bar = float(np.median(diffs))
+    if bar <= 0:
+        return 0.0, 0.0, 0
+    anzahl = int((total - downbeats[0]) / bar) + 1
+    return float(downbeats[0]), bar, max(anzahl, 0)
+
+
+def detect_cues(audio: Path, downbeats: list[float], total: float) -> list[dict]:
+    """Cue-Points an den Stellen, an denen sich die Energie deutlich ändert.
+
+    Ein Drop beginnt damit, dass es lauter und voller wird, ein Breakdown
+    damit, dass die Drums wegfallen. Beides zeigt sich im Effektivpegel je
+    Takt. Gesucht werden Sprünge zwischen Achtergruppen, weil Tanzmusik in
+    Acht- und Sechzehntaktern gebaut ist.
+    """
+    import librosa
+
+    start, bar, anzahl = _bar_times(downbeats, total)
+    if bar <= 0 or anzahl < 16:
+        return []
+
+    try:
+        y, sr = librosa.load(str(audio), sr=22050, mono=True)
+    except Exception as exc:
+        LOG.warning("Cue-Erkennung übersprungen: %s", exc)
+        return []
+    if not y.size:
+        return []
+
+    pegel = []
+    for i in range(anzahl):
+        a = int((start + i * bar) * sr)
+        b = int((start + (i + 1) * bar) * sr)
+        seg = y[max(0, a):min(len(y), b)]
+        pegel.append(float(np.sqrt((seg ** 2).mean())) if seg.size else 0.0)
+    pegel = np.asarray(pegel)
+    if not pegel.max():
+        return []
+    pegel = pegel / pegel.max()
+
+    # Mittelwert je Achtergruppe, dann die Sprünge dazwischen.
+    gruppen = [pegel[i:i + 8].mean() for i in range(0, len(pegel) - 7, 8)]
+    kandidaten = []
+    for i in range(1, len(gruppen)):
+        delta = gruppen[i] - gruppen[i - 1]
+        if abs(delta) < 0.12:
+            continue
+        takt = i * 8
+        laut = gruppen[i]
+        if delta > 0:
+            name = "Drop" if laut > 0.6 else "Aufbau"
+        else:
+            name = "Breakdown" if laut < 0.45 else "Ruhiger"
+        kandidaten.append({"bar": takt, "name": name, "delta": abs(delta)})
+
+    # Der Anfang ist immer ein Cue – dort startet man den Track.
+    cues = [{"bar": 0, "name": "Intro"}]
+    kandidaten.sort(key=lambda c: -c["delta"])
+    for k in kandidaten:
+        if len(cues) >= MAX_CUES:
+            break
+        if all(abs(k["bar"] - c["bar"]) >= CUE_MIN_ABSTAND for c in cues):
+            cues.append({"bar": k["bar"], "name": k["name"]})
+
+    cues.sort(key=lambda c: c["bar"])
+    for n, cue in enumerate(cues):
+        cue["index"] = n
+        cue["time"] = round(start + cue["bar"] * bar, 3)
+        cue["color"] = CUE_COLORS.get(cue["name"], (0x90, 0x90, 0x90))
+    return cues
+
+
+# --------------------------------------------------------------------------- #
+# Export für DJ-Software
+# --------------------------------------------------------------------------- #
+
+# Traktor speichert die Tonart als Zahl: Chroma-Index für Dur, plus 12 für
+# Moll. An der echten Sammlung überprüft (C-Dur = 0, c-Moll = 12, e-Moll = 16).
+CHROMA_INDEX = {n: i for i, n in enumerate(SHARP_NAMES)}
+
+
+# Umkehrung der Camelot-Tabelle, um ältere Analysen ohne key_tonic zu retten.
+CAMELOT_ZU_TONART = {}
+
+
+def _tonart_aus_analyse(analysis: dict) -> tuple[str, str]:
+    """Grundton und Tongeschlecht, notfalls aus dem Camelot-Code hergeleitet.
+
+    Analysen, die vor der Einführung von key_tonic entstanden sind, haben die
+    Felder nicht. Ohne diesen Rückfall bliebe die Tonart im Export leer.
+    """
+    tonic = analysis.get("key_tonic") or ""
+    mode = analysis.get("key_mode") or ""
+    if tonic and mode:
+        return tonic, mode
+    if not CAMELOT_ZU_TONART:
+        import analysis as _analysis
+        for (t, m), code in _analysis.CAMELOT.items():
+            CAMELOT_ZU_TONART[code] = (t, m)
+    return CAMELOT_ZU_TONART.get((analysis.get("camelot") or "").strip(), ("", ""))
+
+
+def _traktor_key(tonic: str, mode: str) -> int | None:
+    index = CHROMA_INDEX.get(tonic)
+    if index is None:
+        return None
+    return index + (12 if mode == "minor" else 0)
+
+
+def _xml_escape(text: str) -> str:
+    return (str(text).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+def export_rekordbox(folder: Path, analysis: dict, cues: list[dict], song: str, opts: dict) -> Path:
+    """Eine rekordbox.xml neben die Stems legen.
+
+    Bewusst eine eigene Datei statt eines Eingriffs in die Datenbank: der
+    Import in Rekordbox ist ein Zwischenschritt, dafür bleibt die vorhandene
+    Sammlung unberührt.
+    """
+    import urllib.parse
+
+    bpm = float(analysis.get("bpm") or 0)
+    tracks = []
+    for n, path in enumerate(stem_files(folder) + [folder / "original.wav"], start=1):
+        if not path.exists():
+            continue
+        stem = stem_name(path)
+        # Rekordbox erwartet eine file://-URL mit kodierten Sonderzeichen.
+        url = "file://localhost" + urllib.parse.quote(str(path))
+        zeilen = [
+            f'    <TRACK TrackID="{n}" Name="{_xml_escape(song + " – " + stem)}"',
+            f'           Artist="{_xml_escape(analysis.get("artist", ""))}"',
+            f'           AverageBpm="{bpm:.2f}" Tonality="{_xml_escape(format_key(analysis.get("camelot", ""), *_tonart_aus_analyse(analysis), opts))}"',
+            f'           Comments="{_xml_escape(build_tag_text(analysis, opts))}"',
+            f'           Location="{_xml_escape(url)}">',
+        ]
+        if bpm > 0 and cues:
+            zeilen.append(f'      <TEMPO Inizio="{cues[0]["time"]:.3f}" Bpm="{bpm:.2f}" Metro="4/4" Battito="1"/>')
+        for cue in cues:
+            r, g, b = cue["color"]
+            zeilen.append(
+                f'      <POSITION_MARK Name="{_xml_escape(cue["name"])}" Type="0"'
+                f' Start="{cue["time"]:.3f}" Num="{cue["index"]}"'
+                f' Red="{r}" Green="{g}" Blue="{b}"/>')
+        zeilen.append("    </TRACK>")
+        tracks.append("\n".join(zeilen))
+
+    inhalt = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<DJ_PLAYLISTS Version="1.0.0">\n'
+        '  <PRODUCT Name="StemLab" Version="1.0" Company="StemLab"/>\n'
+        f'  <COLLECTION Entries="{len(tracks)}">\n'
+        + "\n".join(tracks) + "\n"
+        '  </COLLECTION>\n'
+        '  <PLAYLISTS>\n'
+        '    <NODE Type="0" Name="ROOT" Count="1">\n'
+        f'      <NODE Name="{_xml_escape(song)}" Type="1" KeyType="0" Entries="{len(tracks)}">\n'
+        + "\n".join(f'        <TRACK Key="{i}"/>' for i in range(1, len(tracks) + 1)) + "\n"
+        '      </NODE>\n'
+        '    </NODE>\n'
+        '  </PLAYLISTS>\n'
+        '</DJ_PLAYLISTS>\n'
+    )
+    ziel = folder / "rekordbox.xml"
+    ziel.write_text(inhalt, encoding="utf-8")
+    return ziel
+
+
+def export_traktor(folder: Path, analysis: dict, cues: list[dict], song: str, opts: dict) -> Path:
+    """Eine traktor.nml neben die Stems legen.
+
+    Aufbau und Feldnamen sind an einer echten collection.nml von Traktor Pro 4
+    abgelesen – insbesondere der Pfadtrenner "/:" und die Angabe in
+    Millisekunden bei den Cue-Points.
+    """
+    bpm = float(analysis.get("bpm") or 0)
+    tonic, mode = _tonart_aus_analyse(analysis)
+    key_zahl = _traktor_key(tonic, mode)
+    eintraege = []
+
+    for path in stem_files(folder) + [folder / "original.wav"]:
+        if not path.exists():
+            continue
+        stem = stem_name(path)
+        # Traktor trennt Verzeichnisse mit "/:" und führt den Datenträger extra.
+        verzeichnis = "/:".join(path.parent.parts[1:]) + "/:"
+        zeilen = [
+            f'<ENTRY MODIFIED_DATE="{time.strftime("%Y/%m/%d")}" TITLE="{_xml_escape(song + " – " + stem)}"'
+            f' ARTIST="{_xml_escape(analysis.get("artist", ""))}">',
+            f'  <LOCATION DIR="/:{_xml_escape(verzeichnis)}" FILE="{_xml_escape(path.name)}" VOLUME="Macintosh HD"></LOCATION>',
+            '  <MODIFICATION_INFO AUTHOR_TYPE="user"></MODIFICATION_INFO>',
+            f'  <INFO COMMENT="{_xml_escape(build_tag_text(analysis, opts))}"'
+            f' KEY="{_xml_escape(format_key(analysis.get("camelot", ""), tonic, mode, opts))}"'
+            f' PLAYTIME="{int(analysis.get("seconds_analyzed") or 0)}"></INFO>',
+        ]
+        if bpm > 0:
+            zeilen.append(f'  <TEMPO BPM="{bpm:.6f}" BPM_QUALITY="100.000000"></TEMPO>')
+        if key_zahl is not None:
+            zeilen.append(f'  <MUSICAL_KEY VALUE="{key_zahl}"></MUSICAL_KEY>')
+        for cue in cues:
+            # START ist in Millisekunden. TYPE 4 ist das Raster, 0 ein Hotcue.
+            ms = cue["time"] * 1000.0
+            if cue["index"] == 0:
+                zeilen.append(f'  <CUE_V2 NAME="Beatgrid" DISPL_ORDER="0" TYPE="4"'
+                              f' START="{ms:.6f}" LEN="0.000000" REPEATS="-1" HOTCUE="-1"></CUE_V2>')
+            zeilen.append(f'  <CUE_V2 NAME="{_xml_escape(cue["name"])}" DISPL_ORDER="0" TYPE="0"'
+                          f' START="{ms:.6f}" LEN="0.000000" REPEATS="-1"'
+                          f' HOTCUE="{cue["index"]}"></CUE_V2>')
+        zeilen.append("</ENTRY>")
+        eintraege.append("\n".join(zeilen))
+
+    # Ohne Playlist zeigt Traktor eine importierte Datei als leer an. Der
+    # PRIMARYKEY trägt den Datenträger im Pfad, anders als LOCATION.
+    schluessel = []
+    for path in stem_files(folder) + [folder / "original.wav"]:
+        if path.exists():
+            schluessel.append(
+                '<ENTRY><PRIMARYKEY TYPE="TRACK" KEY="Macintosh HD/:'
+                + _xml_escape("/:".join(path.parts[1:])) + '"></PRIMARYKEY></ENTRY>')
+
+    inhalt = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="no" ?>\n'
+        '<NML VERSION="20">\n'
+        '<HEAD COMPANY="www.native-instruments.com" PROGRAM="StemLab"></HEAD>\n'
+        f'<COLLECTION ENTRIES="{len(eintraege)}">\n'
+        + "\n".join(eintraege) + "\n"
+        '</COLLECTION>\n'
+        '<PLAYLISTS><NODE TYPE="FOLDER" NAME="$ROOT"><SUBNODES COUNT="1">\n'
+        f'<NODE TYPE="PLAYLIST" NAME="{_xml_escape(song)}">\n'
+        f'<PLAYLIST ENTRIES="{len(schluessel)}" TYPE="LIST">\n'
+        + "\n".join(schluessel) + "\n"
+        '</PLAYLIST></NODE></SUBNODES></NODE></PLAYLISTS>\n'
+        '</NML>\n'
+    )
+    ziel = folder / "traktor.nml"
+    ziel.write_text(inhalt, encoding="utf-8")
+    return ziel
+
+
+def export_dj(folder: Path, analysis: dict, song: str, config: dict, say: LogFn) -> list[Path]:
+    """Exportdateien für die eingestellten Programme schreiben."""
+    opts = settings(config)
+    cues = []
+    if opts.get("export_cues", True):
+        original = folder / "original.wav"
+        if original.exists():
+            say("Suche Cue-Points …")
+            cues = detect_cues(original, analysis.get("beats_json_downbeats") or [],
+                               float(analysis.get("seconds_analyzed") or 0))
+
+    geschrieben = []
+    if opts.get("export_rekordbox", True):
+        geschrieben.append(export_rekordbox(folder, analysis, cues, song, opts))
+    if opts.get("export_traktor", True):
+        geschrieben.append(export_traktor(folder, analysis, cues, song, opts))
+    if geschrieben:
+        say(f"Export geschrieben: {', '.join(p.name for p in geschrieben)}"
+            + (f" · {len(cues)} Cue-Points" if cues else ""))
+    return geschrieben
 
 
 def tag_file(path: Path, bpm: float, key_id3: str, camelot: str, song: str, stem: str) -> None:

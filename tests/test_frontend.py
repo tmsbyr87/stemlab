@@ -117,9 +117,15 @@ def test_alle_bereiche_haben_einen_inhalt(html):
 
 
 def test_vorlagen_kommen_vom_server(html):
-    """Die Oberfläche darf keine eigene Liste führen, die auseinanderlaufen kann."""
-    assert "m.presets" in html
-    assert "rekordbox" not in html.lower().split("<script>")[-1]
+    """Die Oberfläche darf keine eigene Vorlagenliste führen.
+
+    Geprüft wird, dass über `m.presets` iteriert wird statt über ein
+    eingebautes Objekt – erwähnt werden dürfen die Programme natürlich, etwa
+    in der Erklärung zum Export.
+    """
+    skript = html.split("<script>")[-1]
+    assert "m.presets" in skript
+    assert not re.search(r"(const|let|var)\s+\w*PRESETS?\s*=", skript)
 
 
 def test_einstellungen_sind_auf_dem_telefon_bedienbar(html):

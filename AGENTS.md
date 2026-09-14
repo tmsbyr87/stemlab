@@ -199,7 +199,7 @@ Kommentare erklären das **Warum**, nicht das Was.
 venv/bin/python -m pytest
 ```
 
-138 Tests, rund anderthalb Sekunden, **keine Audiodateien nötig** – das
+212 Tests, rund anderthalb Sekunden, **keine Audiodateien nötig** – das
 Material wird synthetisch erzeugt, seine Wahrheit steht dadurch per
 Konstruktion fest. Ein Raster aus exakt 124 BPM muss 124 BPM ergeben, eine
 g-Moll-Kadenz muss g-Moll ergeben.
@@ -212,6 +212,7 @@ g-Moll-Kadenz muss g-Moll ergeben.
 | `tests/test_tags.py` | Tags und Cover in WAV und FLAC |
 | `tests/test_api.py` | HTTP-Schnittstelle, Pfad- und Host-Schutz |
 | `tests/test_frontend.py` | Camelot-Farben, Cover-URL, Feldabgleich mit dem Server |
+| `tests/test_export.py` | Rekordbox- und Traktor-Format, Cue-Erkennung |
 | `tests/test_formats.py` | Zeitstempel, Dateinamen, Akkorde, MIDI-Klick, Sidecars |
 
 Die Tests sind **Regressionstests für real aufgetretene Fehler**. Jeder

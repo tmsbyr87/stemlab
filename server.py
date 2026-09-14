@@ -717,6 +717,34 @@ async def preview_settings(request: Request) -> JSONResponse:
     })
 
 
+@app.post("/api/export")
+async def export_dj(request: Request) -> JSONResponse:
+    """Export für Rekordbox und Traktor in den Ergebnisordner schreiben."""
+    payload = await request.json()
+    folder = _allowed_result_path(str(payload.get("folder", "")))
+    if not folder.is_dir():
+        raise HTTPException(400, "Kein Ergebnisordner.")
+    try:
+        daten = json.loads((folder / "analysis.json").read_text())
+    except Exception:
+        raise HTTPException(400, "Keine Analyse in diesem Ordner.")
+
+    try:
+        beats = json.loads((folder / "beats.json").read_text())
+        daten["beats_json_downbeats"] = beats.get("downbeats") or []
+    except Exception:
+        daten["beats_json_downbeats"] = daten.get("downbeats") or []
+
+    meldungen: list[str] = []
+    try:
+        dateien = await run_in_threadpool(
+            postprocess.export_dj, folder, daten, folder.name, load_config(), meldungen.append)
+    except Exception as exc:
+        LOG.warning("Export fehlgeschlagen (%s): %s", folder.name, exc)
+        raise HTTPException(400, f"Export fehlgeschlagen: {exc}")
+    return JSONResponse({"files": [str(p) for p in dateien], "log": meldungen})
+
+
 @app.post("/api/quit")
 def quit_app() -> JSONResponse:
     def _bye() -> None:

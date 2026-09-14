@@ -821,8 +821,15 @@ function bereiche() {
       + (v.key_notation === 'camelot' ? (v.key_leading_zero ? ' (06A)' : ' (6A)') : '')],
     ['tempo', 'Tempo', `${v.tempo_min}–${v.tempo_max} BPM`],
     ['files', 'Dateinamen', v.rename_pattern ? 'umbenennen' : 'unverändert'],
+    ['export', 'DJ-Export', exportKurz()],
     ['folder', 'Zielordner', (m.output_dir || '').split('/').pop()],
   ];
+}
+
+function exportKurz() {
+  const v = SET.values;
+  const ziele = [v.export_rekordbox && 'Rekordbox', v.export_traktor && 'Traktor'].filter(Boolean);
+  return ziele.length ? ziele.join(' + ') : 'aus';
 }
 
 function zeichneNav() {
@@ -919,6 +926,21 @@ function zeichneBereich() {
     main.append(fP);
   }
 
+  if (SET.bereich === 'export') {
+    main.append(el('h4', 'set-h', 'DJ-Export'));
+    main.append(Object.assign(el('p', 'set-lead'), { textContent:
+      'StemLab legt eigene Dateien neben die Stems – deine vorhandene Sammlung wird nie verändert. In Rekordbox über „Datei > Importieren", in Traktor per Ziehen in den Explorer.' }));
+    main.append(schalter('rekordbox.xml schreiben', v.export_rekordbox,
+      w => setzeWert('export_rekordbox', w, true)));
+    main.append(schalter('traktor.nml schreiben', v.export_traktor,
+      w => setzeWert('export_traktor', w, true)));
+    main.append(schalter('Cue-Points aus der Analyse ableiten', v.export_cues,
+      w => setzeWert('export_cues', w, true)));
+    main.append(Object.assign(el('small', null,
+      'Cue-Points entstehen dort, wo sich die Energie deutlich ändert – Drops, Breakdowns, Aufbauten. Sie liegen immer auf einer Taktgrenze.'),
+      { style: 'color:var(--muted);font-size:11px;line-height:1.4' }));
+  }
+
   if (SET.bereich === 'folder') {
     main.append(el('h4', 'set-h', 'Zielordner'));
     const row = el('div', 'set-row');
@@ -933,7 +955,7 @@ function zeichneBereich() {
   }
 
   // Die Vorschau begleitet jeden Bereich außer dem Ordner – dort sagt sie nichts.
-  if (SET.bereich !== 'folder') {
+  if (SET.bereich !== 'folder' && SET.bereich !== 'export') {
     const pv = el('div', 'set-preview'); pv.id = 'set-preview';
     for (const [label, key] of [['Im Tag steht', 'tag'], ['Datei heißt', 'file']]) {
       const row = el('div', 'row');
@@ -1168,6 +1190,18 @@ function buildResult(e, d) {
   lyricsBtn.hidden = !(d.extras || []).some(x => base(x) === 'lyrics.json');
   chordsBtn.hidden = !(d.extras || []).some(x => base(x) === 'analysis.json');
   mk('Tags & Cover', () => togglePanel(e, '.tags-panel', () => loadTags(e, d)));
+  const expBtn = mk('DJ-Export', async () => {
+    if (!SET.values.export_rekordbox && !SET.values.export_traktor) {
+      toast('Wähle zuerst in den Einstellungen unter „DJ-Export" ein Ziel.', true);
+      return;
+    }
+    expBtn.disabled = true;
+    try {
+      const r = await api('/api/export', { folder: d.folder });
+      toast(r.log?.[r.log.length - 1] || 'Export geschrieben.');
+    } catch (err) { toast(err.message, true); }
+    expBtn.disabled = false;
+  });
   mk('Finder', () => api('/api/reveal', { path: d.folder }).catch(err => toast(err.message, true)));
   e._lyricsBtn = lyricsBtn;
 }

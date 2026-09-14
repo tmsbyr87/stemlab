@@ -33,6 +33,7 @@ deinem Mac – keine Uploads, keine Warteschlange, keine Längenbegrenzung.
 | 🔤 **Lyrics** | Whisper auf der Apple-GPU, als TXT, LRC, SRT und JSON, ohne erfundene Zeilen |
 | 🎚️ **Mixer** | Alle Stems synchron, Pegel, Mute, Solo und A/B gegen das Original |
 | 🏷️ **Tags & Cover** | ID3- und Vorbis-Tags samt Coverbild direkt in der Oberfläche bearbeiten |
+| 🎛️ **DJ-Export** | rekordbox.xml und traktor.nml mit Beatgrid, Tonart und Cue-Points |
 | ✂️ **Loops** | Am Downbeat geschnitten, 2, 4 oder 8 Takte, tempo-getaggt |
 | 🎧 **Pitch / Tempo** | Halbtöne und Ziel-BPM über Rubber Band |
 | 🎤 **Vocals veredeln** | De-Reverb, De-Noise und Lead/Backing in einer Kette |
@@ -181,9 +182,32 @@ Playhead mit; ein Klick auf einen Takt oder eine Zeile springt dorthin.
 | **Lyrics** | Whisper auf dem Vocal-Stem – `mlx-whisper` auf der Apple-GPU, sonst `faster-whisper`. Erfundene Zeilen über Stille werden verworfen | `lyrics.txt`, `.lrc` (Karaoke-Zeitstempel), `.srt`, `.json` |
 | **Mix exportieren** | Pegel und Stummschaltungen aus dem Mixer als Datei (z. B. Vocals −6 dB als Übungsmix) | `mixes/<Name>.wav` |
 | **Tags & Cover** | Titel, Artist, Album, Label, Remix, Composer, Grouping, Genre, Jahr, Key, Tempo und Kommentar bearbeiten, Cover als JPEG oder PNG setzen – für den Mainmix (`original.wav`) oder einen einzelnen Stem | schreibt direkt in die Datei |
+| **DJ-Export** | `rekordbox.xml` und `traktor.nml` mit Beatgrid, Tonart, Tempo, Kommentar und bis zu acht Cue-Points | `rekordbox.xml`, `traktor.nml` |
 
 Aktionen laufen als eigene Aufträge in derselben Warteschlange und erscheinen
 als eigene Karten mit Playern.
+
+## DJ-Export
+
+Über **Einstellungen > DJ-Export** schreibt StemLab `rekordbox.xml` und
+`traktor.nml` neben die Stems. Beide enthalten Beatgrid, Tonart, Tempo, den
+Kommentar im eingestellten Format und bis zu acht Cue-Points.
+
+**Deine vorhandene Sammlung wird nie verändert.** StemLab legt eigene Dateien
+an, die du importierst – in Rekordbox über „Datei > Importieren", in Traktor
+per Ziehen in den Explorer. Der Import ist ein Zwischenschritt, dafür ist
+nichts kaputtzumachen.
+
+Die Cue-Points entstehen dort, wo sich die Energie deutlich ändert: ein Drop
+beginnt damit, dass es lauter und voller wird, ein Breakdown damit, dass die
+Drums wegfallen. Gesucht wird in Achtergruppen, weil Tanzmusik in Acht- und
+Sechzehntaktern gebaut ist, und jeder Cue landet auf einer Taktgrenze. Das
+ersetzt keine handgesetzten Cues, trifft die groben Abschnitte aber
+zuverlässig. Abschaltbar, falls du lieber selbst setzt.
+
+Das Traktor-Format ist an einer echten `collection.nml` von Traktor Pro 4
+abgelesen – Pfadtrenner `/:`, Cue-Zeiten in Millisekunden, Tonart als Zahl
+(Chroma-Index, für Moll plus zwölf).
 
 ## Ergebnisse & Bibliothek
 
@@ -238,7 +262,7 @@ liegen.
 venv/bin/python -m pytest
 ```
 
-138 Tests, rund anderthalb Sekunden. Sie brauchen **keine Audiodateien**: das
+212 Tests, rund anderthalb Sekunden. Sie brauchen **keine Audiodateien**: das
 Testmaterial wird erzeugt, damit die Wahrheit per Konstruktion feststeht. Ein
 Raster aus exakt 124 BPM muss 124 BPM ergeben, eine g-Moll-Kadenz muss g-Moll
 ergeben. So laufen die Tests überall, ohne dass Musik im Repo liegt.
@@ -261,6 +285,7 @@ dahinter greift.
 | `tests/test_tags.py` | Tags und Cover in WAV und FLAC |
 | `tests/test_api.py` | HTTP-Schnittstelle, Pfad- und Host-Schutz |
 | `tests/test_frontend.py` | Camelot-Farben, Cover-URL, Feldabgleich |
+| `tests/test_export.py` | Rekordbox- und Traktor-Format, Cue-Erkennung |
 | `tests/test_formats.py` | Zeitstempel, Dateinamen, Akkorde, MIDI-Klick, Sidecars |
 
 Bei jedem Push laufen sie über GitHub Actions auf macOS gegen Python 3.10 bis
