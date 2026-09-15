@@ -506,6 +506,67 @@ class JobResult:
     analysis: dict | None = None
 
 
+def analyze_only(
+    source: Path,
+    output_root: Path,
+    display_name: str | None = None,
+    options: dict | None = None,
+    on_progress: ProgressFn | None = None,
+    on_log: LogFn | None = None,
+    on_analysis: AnalysisFn | None = None,
+) -> JobResult:
+    """Nur analysieren, nicht trennen.
+
+    Für die Vorbereitung eines Sets braucht man Tempo, Tonart und Cue-Points,
+    aber keine Stems – das dauert Sekunden statt Minuten. Der Ordner entsteht
+    genauso wie bei einer Trennung, sodass sich die Stems jederzeit
+    nachträglich erzeugen lassen.
+    """
+    import analysis as _analysis
+    import postprocess
+
+    options = options or {}
+    say = on_log or (lambda _msg: None)
+    tick = on_progress or (lambda _pct, _pass, _total: None)
+
+    song_name = safe_song_name(display_name or source.name)
+    target = output_root / song_name
+    counter = 2
+    # Anders als beim Trennen zählen wir nur hoch, wenn dort schon eine
+    # Analyse liegt: ein zweiter Lauf auf denselben Song soll ihn ersetzen,
+    # nicht danebenlegen.
+    while (target / "analysis.json").exists():
+        target = output_root / f"{song_name} ({counter})"
+        counter += 1
+
+    if not ffmpeg_path():
+        raise RuntimeError("ffmpeg wurde nicht gefunden – bitte `brew install ffmpeg` ausführen.")
+
+    started = time.time()
+    target.mkdir(parents=True, exist_ok=True)
+    result = JobResult(folder=target, seconds=0.0, device="cpu")
+
+    say("Bereite Audio vor …" if not is_video(source) else "Video erkannt – ziehe Tonspur heraus …")
+    original = target / "original.wav"
+    _to_wav(source, original)
+    result.extras.append(original)
+    tick(30, 1, 1)
+
+    analysis_obj = _analysis.analyze(original, on_log=say)
+    if on_analysis:
+        on_analysis(analysis_obj.summary())
+    result.analysis = analysis_obj.summary()
+    result.extras += _analysis.write_sidecars(target, analysis_obj)
+    tick(80, 1, 1)
+
+    say("Berechne Wellenform …")
+    result.extras.append(postprocess.write_waveforms(target, [original]))
+    result.seconds = time.time() - started
+    tick(100, 1, 1)
+    say(f"Analyse fertig in {result.seconds:.1f} s.")
+    return result
+
+
 def separate(
     source: Path,
     model_key: str,
@@ -532,12 +593,19 @@ def separate(
     say = on_log or (lambda _msg: None)
     tick = on_progress or (lambda _pct, _pass, _total: None)
 
-    song_name = safe_song_name(display_name or source.name)
-    target = output_root / song_name
-    counter = 2
-    while _holds_stems(target):
-        target = output_root / f"{song_name} ({counter})"
-        counter += 1
+    # "reuse" kommt vom nachträglichen Trennen einer vorhandenen Analyse: dann
+    # wird in deren Ordner geschrieben, statt einen zweiten anzulegen.
+    weiterverwenden = Path(options["reuse"]) if options.get("reuse") else None
+    if weiterverwenden is not None:
+        target = weiterverwenden
+        song_name = target.name
+    else:
+        song_name = safe_song_name(display_name or source.name)
+        target = output_root / song_name
+        counter = 2
+        while _holds_stems(target):
+            target = output_root / f"{song_name} ({counter})"
+            counter += 1
 
     if not ffmpeg_path():
         raise RuntimeError("ffmpeg wurde nicht gefunden – bitte `brew install ffmpeg` ausführen.")
@@ -554,10 +622,14 @@ def separate(
 
         # Tempo, Tonart, Takte, Akkorde – dauert Sekunden und steht dann schon in der Karte.
         analysis_obj = None
+        vorhanden = weiterverwenden is not None and (target / "analysis.json").exists()
         try:
-            analysis_obj = _analysis.analyze(audio_in, on_log=say)
-            if on_analysis:
-                on_analysis(analysis_obj.summary())
+            if vorhanden:
+                say("Analyse liegt schon vor – überspringe sie.")
+            else:
+                analysis_obj = _analysis.analyze(audio_in, on_log=say)
+                if on_analysis:
+                    on_analysis(analysis_obj.summary())
         except Exception as exc:
             LOG.warning("Analyse übersprungen: %s", exc)
             say("Analyse übersprungen.")
@@ -587,7 +659,8 @@ def separate(
 
         # Original für A/B und Mixer, Analyse-Dateien, Wellenformen, Tags.
         original = target / "original.wav"
-        shutil.move(str(audio_in), original)
+        if audio_in.resolve() != original.resolve():
+            shutil.move(str(audio_in), original)
         result.extras.append(original)
         if analysis_obj is not None:
             result.analysis = analysis_obj.summary()

@@ -25,6 +25,7 @@ deinem Mac – keine Uploads, keine Warteschlange, keine Längenbegrenzung.
 
 | | |
 |---|---|
+| 🔍 **Nur analysieren** | Tempo, Tonart, Takte und Akkorde in Sekunden – ohne Trennung |
 | 🎛️ **Stem-Trennung** | Roformer, Demucs und MDX-Net, dazu zwei Ensembles – 2, 4 oder 6 Spuren |
 | 🥁 **Taktraster** | Beats und Downbeats mit Beat This!, BPM per Regression über ein bereinigtes Raster |
 | 🎹 **Tonart** | Bandbegrenztes CQT-Chromagramm mit Albrecht-Shanahan-Profilen, inklusive Camelot-Code |
@@ -115,6 +116,21 @@ ersetzt.
 Lösche `~/Applications/StemLab.app`, den Projektordner,
 `~/Library/Application Support/StemLab`, `~/Library/Logs/StemLab.log` und
 `~/.cache/torch/hub/checkpoints/beat_this-*.ckpt`.
+
+## Zwei Wege: analysieren oder trennen
+
+Über dem Modellfeld steht die erste Entscheidung:
+
+**Nur analysieren** braucht wenige Sekunden und liefert Tempo, Tonart, Takte,
+Akkorde und Energie. Für die Vorbereitung eines Sets ist das meist alles, was
+man wissen will – Modell und Format blendet StemLab dabei aus, weil sie keine
+Rolle spielen.
+
+**Trennen** macht zusätzlich die Stems und dauert je nach Modell Minuten.
+
+Beides landet im selben Ordner. Aus einer Analyse lassen sich die Stems
+jederzeit nachziehen: Knopf **„Jetzt trennen"** auf der Karte, ohne den Song
+erneut hochzuladen. Die Analyse wird dabei nicht neu gerechnet.
 
 ## Was beim Hineinziehen passiert
 
@@ -262,7 +278,7 @@ liegen.
 venv/bin/python -m pytest
 ```
 
-212 Tests, rund anderthalb Sekunden. Sie brauchen **keine Audiodateien**: das
+224 Tests, rund anderthalb Sekunden. Sie brauchen **keine Audiodateien**: das
 Testmaterial wird erzeugt, damit die Wahrheit per Konstruktion feststeht. Ein
 Raster aus exakt 124 BPM muss 124 BPM ergeben, eine g-Moll-Kadenz muss g-Moll
 ergeben. So laufen die Tests überall, ohne dass Musik im Repo liegt.

@@ -203,3 +203,120 @@ def test_vorschau_zeigt_das_ergebnis(client):
     d = r.json()
     assert d["tag"] == "06A - 124 - 5"
     assert d["filename"] == "vocals - 06A.wav"
+
+
+# --------------------------------------------------------------------------- #
+# Nur analysieren statt trennen
+# --------------------------------------------------------------------------- #
+
+def test_analyse_braucht_kein_modell(client, tmp_path, monkeypatch):
+    """Beim reinen Analysieren wird nie ein Modell geladen.
+
+    Es darf also fehlen – sonst könnte man nicht analysieren, solange die
+    Modelliste noch lädt.
+    """
+    aufrufe = {}
+
+    def falsches_analyze(**kwargs):
+        aufrufe.update(kwargs)
+        class Ergebnis:
+            folder = tmp_path / "Song"
+            files: list = []
+            extras: list = []
+            seconds = 1.0
+            analysis = {"bpm": 124.0}
+        (tmp_path / "Song").mkdir(exist_ok=True)
+        return Ergebnis()
+
+    monkeypatch.setattr(server.engine, "analyze_only", falsches_analyze)
+    r = client.post("/api/jobs",
+                    data={"mode": "analyze", "model": ""},
+                    files={"file": ("probe.wav", b"RIFF0000WAVE" + b"\0" * 100, "audio/wav")})
+    assert r.status_code == 200
+
+
+def test_unbekannter_modus_wird_abgewiesen(client):
+    r = client.post("/api/jobs",
+                    data={"mode": "quatsch", "model": ""},
+                    files={"file": ("probe.wav", b"RIFF0000WAVE", "audio/wav")})
+    assert r.status_code == 400
+
+
+def test_nachtraegliches_trennen_braucht_eine_aufnahme(client, tmp_path):
+    ordner = tmp_path / "Leer"
+    ordner.mkdir()
+    r = client.post("/api/separate-folder", json={"folder": str(ordner), "model": "demucs4"})
+    assert r.status_code == 400
+    assert "Aufnahme" in r.json()["detail"]
+
+
+def test_nachtraegliches_trennen_lehnt_fertige_ordner_ab(client, tmp_path):
+    """Ein Ordner mit Stems wurde schon getrennt – kein zweites Mal."""
+    import numpy as np
+    import soundfile as sf
+
+    ordner = tmp_path / "Fertig"
+    ordner.mkdir()
+    sf.write(ordner / "original.wav", np.zeros(SR), SR)
+    sf.write(ordner / "vocals.wav", np.zeros(SR), SR)
+    r = client.post("/api/separate-folder", json={"folder": str(ordner), "model": "demucs4"})
+    assert r.status_code == 400
+    assert "bereits" in r.json()["detail"]
+
+
+def test_quelle_im_ergebnisordner_wird_nicht_geloescht(tmp_path, monkeypatch):
+    """original.wav muss das nachträgliche Trennen überleben.
+
+    Der Worker räumt nach jedem Job die hochgeladene Zwischendatei weg. Beim
+    nachträglichen Trennen ist die Quelle aber die original.wav im
+    Ergebnisordner – ohne die Ausnahme löschte er sie mit und der
+    A/B-Vergleich war hinüber.
+    """
+    import numpy as np
+    import soundfile as sf
+
+    quelle = tmp_path / "original.wav"
+    sf.write(quelle, np.zeros(SR), SR)
+
+    def trennung(**kwargs):
+        class Ergebnis:
+            folder = tmp_path
+            files: list = []
+            extras: list = []
+            seconds = 1.0
+            model_file = ""
+            device = "cpu"
+            analysis = None
+        return Ergebnis()
+
+    monkeypatch.setattr(server.engine, "separate", trennung)
+    job = server.Job(id="t1", kind="separate", display_name="Song", source=quelle,
+                     model_key="demucs4", options={"reuse": str(tmp_path)})
+    server.run_job(job)
+    assert quelle.exists(), "original.wav wurde gelöscht"
+
+
+def test_hochgeladene_datei_wird_aufgeraeumt(tmp_path, monkeypatch):
+    """Ohne reuse ist die Quelle eine Zwischendatei – die muss weg."""
+    import numpy as np
+    import soundfile as sf
+
+    quelle = tmp_path / "upload.wav"
+    sf.write(quelle, np.zeros(SR), SR)
+
+    def trennung(**kwargs):
+        class Ergebnis:
+            folder = tmp_path
+            files: list = []
+            extras: list = []
+            seconds = 1.0
+            model_file = ""
+            device = "cpu"
+            analysis = None
+        return Ergebnis()
+
+    monkeypatch.setattr(server.engine, "separate", trennung)
+    job = server.Job(id="t2", kind="separate", display_name="Song", source=quelle,
+                     model_key="demucs4", options={})
+    server.run_job(job)
+    assert not quelle.exists()

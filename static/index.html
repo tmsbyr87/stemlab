@@ -87,6 +87,13 @@
   .seg button{padding:5px 11px;border-radius:7px;background:transparent;color:var(--text-2);font-weight:600;font-size:12.5px}
   .seg button.on{background:var(--panel);color:var(--text);box-shadow:var(--shadow)}
 
+  /* Der Modus steht vor allem anderen: erst entscheiden, was passieren soll. */
+  #mode{flex:none}
+  #mode button{padding:6px 13px;min-height:38px}
+  .only-split{display:contents}
+  .only-split[hidden]{display:none}
+  @media (max-width:620px){ #mode{width:100%} #mode button{flex:1} }
+
   .picker{position:relative}
   .pick-btn{width:100%;display:flex;align-items:center;gap:10px;text-align:left;background:var(--panel-2);border:1px solid var(--line-2);color:var(--text);padding:7px 11px;border-radius:10px;font-weight:600}
   .pick-btn:hover{border-color:var(--accent)}
@@ -426,6 +433,9 @@
 
   <div class="card">
     <div class="bar">
+      <div class="seg" id="mode" title="Was mit dem Song passieren soll">
+        <button data-v="separate" class="on">Trennen</button><button data-v="analyze">Nur analysieren</button>
+      </div>
       <div class="picker grow" id="model-picker">
         <button class="pick-btn" id="pick-btn" aria-haspopup="listbox" aria-expanded="false">
           <span class="lbl"><span class="nm" id="pick-nm">Modell …</span><span class="sub" id="pick-sub"></span></span>
@@ -438,6 +448,7 @@
       </div>
       <div class="seg" id="format"><button data-v="wav" class="on">WAV</button><button data-v="flac">FLAC</button><button data-v="mp3">MP3</button></div>
       <button class="ghost sm" id="toggle-grid" title="Alle Modelle mit vollständigen Angaben nebeneinander">Alle Modelle</button>
+      <span class="tag" id="mode-hint" hidden>Tempo, Tonart und Akkorde – ohne Stems</span>
       <button class="ghost sm" id="toggle-options" title="Tags, Tonart, Tempo, Dateinamen und Zielordner">Einstellungen</button>
       <span class="tag" id="catalog-tag" hidden></span>
     </div>
@@ -722,7 +733,12 @@ async function openAnalysis(a) {
   if (known) { flash(known); return; }
   try {
     const d = await (await fetch('/api/folder?path=' + encodeURIComponent(a.folder))).json();
-    if (!d.files || !d.files.length) { toast('Ordner enthält keine Stems mehr.', true); return; }
+    // Eine reine Analyse hat keine Stems – die Karte zeigt sie trotzdem, mit
+    // dem Knopf zum nachträglichen Trennen.
+    if (!d.folder) { toast('Ordner ist verschwunden.', true); return; }
+    if (!(d.files || []).length && !(d.extras || []).some(x => base(x) === 'original.wav')) {
+      toast('Ordner enthält weder Stems noch eine Aufnahme.', true); return;
+    }
     renderJob(d); renderTable();
     flash(state.jobs.get(d.id));
   } catch (err) { toast('Konnte die Analyse nicht öffnen.', true); }
@@ -740,6 +756,34 @@ function flash(card) {
    tatsächlich in der Datei landet. */
 
 const SET = { values: {}, meta: null, timer: null, bereich: 'start' };
+
+/* ---------- Modus: trennen oder nur analysieren ----------
+   Die Analyse allein dauert Sekunden statt Minuten und reicht für die
+   Vorbereitung eines Sets. Die Stems lassen sich danach jederzeit
+   nachziehen, ohne den Song erneut hochzuladen. */
+state.mode = 'separate';
+try { state.mode = localStorage.getItem('stemlab.mode') || 'separate'; } catch (_) {}
+
+function renderMode() {
+  const analyse = state.mode === 'analyze';
+  for (const b of $('mode').querySelectorAll('button')) b.classList.toggle('on', b.dataset.v === state.mode);
+  // Modell und Format spielen beim Analysieren keine Rolle – weg damit,
+  // statt sie wirkungslos stehen zu lassen.
+  $('model-picker').hidden = analyse;
+  $('format').hidden = analyse;
+  $('toggle-grid').hidden = analyse;
+  $('mode-hint').hidden = !analyse;
+  $('drop').querySelector('h2').textContent = analyse
+    ? 'Song oder Video zum Analysieren hierher ziehen'
+    : 'Song oder Video hierher ziehen';
+}
+
+$('mode').onclick = (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  state.mode = b.dataset.v;
+  try { localStorage.setItem('stemlab.mode', state.mode); } catch (_) {}
+  renderMode();
+};
 
 const TEMPO_DECIMALS = [
   [0, 'Ganze Zahl', '124'],
@@ -1139,7 +1183,10 @@ function renderJob(d) {
   bar.querySelector('i').style.width = d.percent ? d.percent + '%' : '';
   const log = e.querySelector('.log'); log.textContent = d.error || d.message || ''; log.className = 'log' + (d.error ? ' err' : ''); log.hidden = d.status === 'done';
 
-  if (d.status === 'done' && d.files.length && !e.dataset.filled) {
+  // Eine reine Analyse hat keine Stems, aber eine Aufnahme – auch die bekommt
+  // ihre Karte mit Player, Akkorden und dem Knopf zum Trennen.
+  const hatInhalt = d.files.length || (d.extras || []).some(x => base(x) === 'original.wav');
+  if (d.status === 'done' && hatInhalt && !e.dataset.filled) {
     e.dataset.filled = '1';
     if (d.kind === 'separate' || d.kind === 'library') buildResult(e, d); else buildActionResult(e, d);
     if (d.kind !== 'library') setTimeout(loadAnalyses, 500);
@@ -1189,6 +1236,18 @@ function buildResult(e, d) {
   const lyricsBtn = mk('Text', () => togglePanel(e, '.lyrics-panel', () => loadLyrics(e, d)));
   lyricsBtn.hidden = !(d.extras || []).some(x => base(x) === 'lyrics.json');
   chordsBtn.hidden = !(d.extras || []).some(x => base(x) === 'analysis.json');
+  // Reine Analysen haben noch keine Stems – die lassen sich hier nachziehen,
+  // ohne den Song erneut hochzuladen.
+  if (!(d.files || []).length) {
+    const splitBtn = mk('Jetzt trennen', async () => {
+      if (!state.selected) { toast('Kein Modell verfügbar.', true); return; }
+      splitBtn.disabled = true;
+      try {
+        await api('/api/separate-folder', { folder: d.folder, model: state.selected, format: state.format });
+        toast('Trennung gestartet.');
+      } catch (err) { toast(err.message, true); splitBtn.disabled = false; }
+    });
+  }
   mk('Tags & Cover', () => togglePanel(e, '.tags-panel', () => loadTags(e, d)));
   const expBtn = mk('DJ-Export', async () => {
     if (!SET.values.export_rekordbox && !SET.values.export_traktor) {
@@ -1203,6 +1262,14 @@ function buildResult(e, d) {
     expBtn.disabled = false;
   });
   mk('Finder', () => api('/api/reveal', { path: d.folder }).catch(err => toast(err.message, true)));
+  // Ohne Stems geht das meiste nicht – lieber ausblenden als ins Leere
+  // klicken lassen. Nach dem Trennen erscheinen die Knöpfe von selbst.
+  if (!(d.files || []).length) {
+    const brauchtStems = ['Vocals veredeln', 'Loops', 'Pitch / Tempo', 'Lyrics', 'Mix exportieren'];
+    for (const b of acts.querySelectorAll('button')) {
+      if (brauchtStems.includes(b.textContent.trim())) b.hidden = true;
+    }
+  }
   e._lyricsBtn = lyricsBtn;
 }
 function togglePanel(e, sel, loader) { const p = e.querySelector(sel); if (p.classList.contains('show')) { p.classList.remove('show'); return; } p.classList.add('show'); if (!p.dataset.loaded) { p.dataset.loaded = '1'; loader(p); } }
@@ -1501,10 +1568,11 @@ function connect() {
   es.onerror = () => { es.close(); if (!state.quitting) { $('banner-conn').classList.add('show'); setTimeout(connect, 2500); } };
 }
 async function send(files) {
-  if (!state.selected) { toast('Kein Modell verfügbar.', true); return; }
+  if (state.mode === 'separate' && !state.selected) { toast('Kein Modell verfügbar.', true); return; }
   for (const file of files) {
     if (!file.size) { toast(`„${file.name}" ist leer – Ordner können nicht verarbeitet werden.`, true); continue; }
-    const fd = new FormData(); fd.append('file', file); fd.append('model', state.selected); fd.append('output_format', state.format);
+    const fd = new FormData(); fd.append('file', file); fd.append('mode', state.mode);
+    fd.append('model', state.selected || ''); fd.append('output_format', state.format);
     fd.append('tags', SET.values.write_tags === false ? '0' : '1');
     fd.append('rename', SET.values.rename_pattern ? '1' : '0');
     try { const r = await fetch('/api/jobs', { method: 'POST', body: fd }); if (!r.ok) { const t = await r.json().catch(() => ({})); toast(t.detail || `Upload fehlgeschlagen (${r.status})`, true); } }
@@ -1532,6 +1600,7 @@ window.addEventListener('resize', () => {
     for (const m of state.mixers.values()) for (const t of m.tracks) m.draw(t);
   }, 180);
 }, { passive: true });
+renderMode();
 ladeEinstellungen();
 loadState().then((ok) => { if (ok) connect(); else setTimeout(() => loadState().then(ok2 => ok2 && connect()), 2500); });
 </script>

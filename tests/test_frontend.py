@@ -138,3 +138,42 @@ def test_vorschau_in_jedem_bereich(html):
     """Ohne die Vorschau müsste man raten, was eine Einstellung bewirkt."""
     assert "set-preview" in html
     assert "/api/settings/preview" in html
+
+
+# --------------------------------------------------------------------------- #
+# Modus: trennen oder nur analysieren
+# --------------------------------------------------------------------------- #
+
+def test_modus_schalter_hat_beide_wege(html):
+    assert 'id="mode"' in html
+    assert 'data-v="separate"' in html and 'data-v="analyze"' in html
+
+
+def test_modell_und_format_verschwinden_beim_analysieren(html):
+    """Beides spielt ohne Trennung keine Rolle – stehen zu lassen wäre irreführend."""
+    assert "$('model-picker').hidden = analyse" in html
+    assert "$('format').hidden = analyse" in html
+
+
+def test_upload_schickt_den_modus_mit(html):
+    assert "fd.append('mode', state.mode)" in html
+
+
+def test_analyse_ohne_modell_moeglich(html):
+    """Ohne Trennung wird nie ein Modell geladen – es darf also fehlen."""
+    assert "state.mode === 'separate' && !state.selected" in html
+
+
+def test_karte_ohne_stems_wird_aufgebaut(html):
+    """Eine reine Analyse hat keine Stems, aber eine Aufnahme.
+
+    Ohne diese Ausnahme blieb die Karte leer – kein Player, keine Knöpfe,
+    kein Weg zum nachträglichen Trennen.
+    """
+    assert "const hatInhalt = d.files.length ||" in html
+
+
+def test_knoepfe_ohne_stems_werden_ausgeblendet(html):
+    """Loops oder Mix ohne Stems führen ins Leere."""
+    assert "brauchtStems" in html
+    assert "'Jetzt trennen'" in html

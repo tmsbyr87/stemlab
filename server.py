@@ -217,7 +217,18 @@ def run_job(job: Job) -> None:
     publish(job)
     on_progress, on_log, on_analysis = _job_callbacks(job)
     try:
-        if job.kind == "separate":
+        if job.kind == "analyze":
+            result = engine.analyze_only(
+                source=job.source, output_root=output_root(),
+                display_name=job.display_name, options=job.options,
+                on_progress=on_progress, on_log=on_log, on_analysis=on_analysis,
+            )
+            job.files = []
+            job.extras = [str(p) for p in result.extras]
+            job.folder = str(result.folder)
+            job.seconds = result.seconds
+            job.analysis = result.analysis
+        elif job.kind == "separate":
             result = engine.separate(
                 source=job.source, model_key=job.model_key, output_root=output_root(),
                 output_format=job.output_format, display_name=job.display_name, options=job.options,
@@ -259,7 +270,10 @@ def run_job(job: Job) -> None:
         job.status = "error"
     finally:
         job.finished = time.time()
-        if job.source:
+        # Die hochgeladene Zwischendatei wegräumen – aber nur, wenn sie
+        # wirklich eine ist. Beim nachträglichen Trennen ist die Quelle die
+        # original.wav im Ergebnisordner; die muss bleiben.
+        if job.source and not job.options.get("reuse"):
             job.source.unlink(missing_ok=True)
         publish(job)
         prune_jobs()
@@ -282,7 +296,9 @@ def worker_loop() -> None:
 
 def folder_summary(folder: Path) -> dict | None:
     stems = postprocess.stem_files(folder)
-    if not stems:
+    # Ein Ordner ohne Stems kann eine reine Analyse sein – die gehört genauso
+    # in die Bibliothek, sonst verschwindet sie nach dem Neuladen.
+    if not stems and not (folder / "analysis.json").exists():
         return None
     analysis = None
     try:
@@ -297,7 +313,7 @@ def folder_summary(folder: Path) -> dict | None:
         "title": "",
         "name": folder.name,
         "model": "",
-        "format": stems[0].suffix.lstrip(".").lower(),
+        "format": stems[0].suffix.lstrip(".").lower() if stems else "wav",
         "status": "done",
         "percent": 100,
         "pass": 1,
@@ -353,13 +369,15 @@ def analyses() -> JSONResponse:
             if not folder.is_dir():
                 continue
             stems = postprocess.stem_files(folder)
-            if not stems:
-                continue
             data = {}
             try:
                 data = json.loads((folder / "analysis.json").read_text())
             except Exception:
                 pass
+            # Ein Ordner ohne Stems kann eine reine Analyse sein. Ohne Analyse
+            # und ohne Stems ist er nichts.
+            if not stems and not data:
+                continue
             items.append({
                 "id": "lib-" + uuid.uuid5(uuid.NAMESPACE_URL, str(folder)).hex[:10],
                 "name": folder.name,
@@ -375,7 +393,7 @@ def analyses() -> JSONResponse:
                 "seconds": data.get("seconds_analyzed") or 0,
                 "bars": len(data.get("downbeats") or []),
                 "stems": [postprocess.stem_name(p) for p in stems],
-                "format": stems[0].suffix.lstrip(".").lower(),
+                "format": stems[0].suffix.lstrip(".").lower() if stems else "",
                 "created": folder.stat().st_mtime,
                 "has_lyrics": (folder / "lyrics.json").exists(),
                 "has_chords": bool(data.get("chords")),
@@ -421,19 +439,27 @@ async def set_output_dir(request: Request) -> JSONResponse:
 @app.post("/api/jobs")
 async def create_job(
     file: UploadFile = File(...),
-    model: str = Form(...),
+    model: str = Form(""),
     output_format: str = Form("wav"),
     tags: str = Form("1"),
     rename: str = Form("0"),
+    mode: str = Form("separate"),
 ) -> JSONResponse:
-    try:
-        choice = engine.get_choice(model)
-    except KeyError:
-        raise HTTPException(400, "Unbekanntes Modell.")
-    if choice.resolved is None:
-        raise HTTPException(400, f"{choice.title} ist derzeit nicht verfügbar.")
-    if output_format not in engine.OUTPUT_FORMATS:
-        raise HTTPException(400, "Unbekanntes Format.")
+    if mode not in ("separate", "analyze"):
+        raise HTTPException(400, "Unbekannter Modus.")
+
+    # Beim reinen Analysieren spielt das Modell keine Rolle – es wird nie
+    # geladen, also darf es auch fehlen oder nicht verfügbar sein.
+    choice = None
+    if mode == "separate":
+        try:
+            choice = engine.get_choice(model)
+        except KeyError:
+            raise HTTPException(400, "Unbekanntes Modell.")
+        if choice.resolved is None:
+            raise HTTPException(400, f"{choice.title} ist derzeit nicht verfügbar.")
+        if output_format not in engine.OUTPUT_FORMATS:
+            raise HTTPException(400, "Unbekanntes Format.")
 
     original = Path(file.filename or "audio").name
     suffix = Path(original).suffix.lower()
@@ -457,8 +483,8 @@ async def create_job(
         raise HTTPException(400, "Die Datei ist leer – wurde vielleicht ein Ordner gezogen?")
 
     job = Job(
-        id=uuid.uuid4().hex[:8], kind="separate", display_name=original, source=Path(handle.name),
-        model_key=model, output_format=output_format, passes=choice.passes,
+        id=uuid.uuid4().hex[:8], kind=mode, display_name=original, source=Path(handle.name),
+        model_key=model, output_format=output_format, passes=choice.passes if choice else 1,
         options={"tags": tags == "1", "rename": rename == "1"},
     )
     with JOBS_LOCK:
@@ -743,6 +769,45 @@ async def export_dj(request: Request) -> JSONResponse:
         LOG.warning("Export fehlgeschlagen (%s): %s", folder.name, exc)
         raise HTTPException(400, f"Export fehlgeschlagen: {exc}")
     return JSONResponse({"files": [str(p) for p in dateien], "log": meldungen})
+
+
+@app.post("/api/separate-folder")
+async def separate_folder(request: Request) -> JSONResponse:
+    """Aus einer fertigen Analyse nachträglich Stems erzeugen.
+
+    Die Analyse hat `original.wav` bereits abgelegt – getrennt wird direkt
+    daraus, der Song muss also nicht erneut hochgeladen werden.
+    """
+    payload = await request.json()
+    folder = _allowed_result_path(str(payload.get("folder", "")))
+    original = folder / "original.wav"
+    if not original.is_file():
+        raise HTTPException(400, "In diesem Ordner liegt keine Aufnahme.")
+    if postprocess.stem_files(folder):
+        raise HTTPException(400, "Dieser Ordner enthält bereits Stems.")
+
+    model = str(payload.get("model") or "")
+    try:
+        choice = engine.get_choice(model)
+    except KeyError:
+        raise HTTPException(400, "Unbekanntes Modell.")
+    if choice.resolved is None:
+        raise HTTPException(400, f"{choice.title} ist derzeit nicht verfügbar.")
+
+    output_format = str(payload.get("format") or "wav")
+    if output_format not in engine.OUTPUT_FORMATS:
+        raise HTTPException(400, "Unbekanntes Format.")
+
+    job = Job(
+        id=uuid.uuid4().hex[:8], kind="separate", display_name=folder.name,
+        source=original, model_key=model, output_format=output_format,
+        passes=choice.passes, options={"tags": True, "rename": False, "reuse": str(folder)},
+    )
+    with JOBS_LOCK:
+        JOBS[job.id] = job
+    WORK.put(job.id)
+    publish(job)
+    return JSONResponse({"id": job.id})
 
 
 @app.post("/api/quit")
