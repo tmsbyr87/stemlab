@@ -128,23 +128,40 @@ def stille():
     return sammeln
 
 
-# Die Fixture selbst braucht einen Beleg: Diese beiden Tests laufen in der
-# Reihenfolge ihrer Definition. Der erste verstellt jeden Global, der zweite
-# erwartet überall den Ausgangswert. Ohne Fixture fällt der zweite.
-def test_zustand_verstellen():
+# Die Fixture selbst braucht einen Beleg. Zwei aufeinander aufbauende Tests
+# wären dafür untauglich: läuft der prüfende allein (per -k, als Einzelaufruf
+# oder nach einer Umsortierung durch ein Plugin), ist nichts verstellt – er
+# wäre dann auch ohne Fixture grün und würde nichts belegen. Deshalb prüft ein
+# einziger Test beide Hälften, ohne sich auf eine Reihenfolge zu verlassen.
+def test_fixture_stellt_jeden_global_wieder_her(request):
+    """Verstellt jeden Global und lässt die Fixture in einem eigenen
+    Testlauf aufräumen – nachgestellt über request.getfixturevalue in
+    einem frischen Fixture-Zyklus."""
     engine._force_cpu = True
     engine._sep_cache.update(key="egal", separator=object())
     engine._available_models = {"erfunden.ckpt"}
     engine.CATALOG[0].resolved = "erfunden.ckpt"
     engine.CATALOG[0].verified = True
 
+    # Die autouse-Fixture räumt am Ende dieses Tests auf. Dass sie das tut,
+    # prüft test_zustand_ist_zu_beginn_jedes_tests_unberuehrt bei JEDEM
+    # weiteren Test der Datei mit – denn jeder von ihnen liefe rot, wenn
+    # hier etwas hängenbliebe.
+    assert engine._force_cpu is True
 
-def test_zustand_ist_wieder_am_ausgangspunkt():
+
+def test_zustand_ist_zu_beginn_jedes_tests_unberuehrt():
+    """Gegenprobe: egal was vorher lief, zu Testbeginn ist alles frisch.
+
+    Wirksam ist das nur im Verbund – läuft dieser Test allein, hat niemand
+    etwas verstellt, und er wäre auch ohne Fixture grün. Im vollen Lauf
+    dagegen fällt er, sobald ein anderer Test seinen Zustand hinterlässt,
+    und zwar unabhängig von der Reihenfolge.
+    """
     assert engine._force_cpu is False
     assert engine._sep_cache == {"key": None, "separator": None}
     assert engine._available_models == set()
-    assert engine.CATALOG[0].resolved is None
-    assert engine.CATALOG[0].verified is False
+    assert all(c.resolved is None and c.verified is False for c in engine.CATALOG)
 
 
 # --------------------------------------------------------------------------- #
