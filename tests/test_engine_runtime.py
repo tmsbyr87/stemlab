@@ -52,7 +52,11 @@ class FakeSeparator:
                  fortschritt=None, logmeldungen=None):
         self.preset = preset
         self._ausgaben = list(ausgaben or [])
-        self._fehler = list(fehler or [])
+        # Geteilte Liste, absichtlich nicht kopiert: Beim MPS-Rückfall legt
+        # engine einen zweiten Separator an. Die Fehlerfolge beschreibt den
+        # Ablauf über beide hinweg ("erst MPS-Fehler, dann Erfolg"), nicht
+        # das Verhalten je Instanz.
+        self._fehler = fehler if fehler is not None else []
         self._fortschritt = list(fortschritt or [])
         self._logmeldungen = list(logmeldungen or [])
         self.torch_device = torch_device
@@ -65,14 +69,17 @@ class FakeSeparator:
 
     def separate(self, pfad):
         self.separate_aufrufe.append(pfad)
-        for text in self._fortschritt:
-            sys.stderr.write(text)
-        for text in self._logmeldungen:
-            logging.getLogger("audio_separator").info(text)
         if self._fehler:
             fehler = self._fehler.pop(0)
             if fehler is not None:
                 raise fehler
+        # Erst nach der Fehlerprüfung: ein fehlschlagender Versuch meldet
+        # keinen Fortschritt. Sonst wäre nicht unterscheidbar, ob der
+        # ProgressTap nach dem MPS-Rückfall wieder an stderr hängt.
+        for text in self._fortschritt:
+            sys.stderr.write(text)
+        for text in self._logmeldungen:
+            logging.getLogger("audio_separator").info(text)
         return list(self._ausgaben)
 
 
@@ -80,7 +87,9 @@ class SeparatorFabrik:
     """Merkt sich jeden erzeugten Fake – _get_separator liefert ihn nur zurück."""
 
     def __init__(self, **vorgaben):
-        self.vorgaben = vorgaben
+        # fehler wird von allen erzeugten Fakes geteilt (siehe FakeSeparator).
+        self.vorgaben = dict(vorgaben)
+        self.vorgaben["fehler"] = list(vorgaben.get("fehler") or [])
         self.erzeugte: list[FakeSeparator] = []
 
     def __call__(self, preset=None):
@@ -771,3 +780,105 @@ def test_run_model_reicht_bibliotheksmeldungen_durch(separator_fabrik, scratch, 
     engine.run_model("modell.ckpt", Path("quelle.wav"), stille)
 
     assert "Lade Gewichte" in stille.meldungen
+
+
+# --------------------------------------------------------------------------- #
+# run_model – MPS-Rückfall
+# --------------------------------------------------------------------------- #
+#
+# Dieser Zweig läuft auf einem funktionierenden Rechner nie: Er greift erst,
+# wenn PyTorch mitten in der Trennung eine Operation auf der Apple-GPU nicht
+# unterstützt. Ohne Test bliebe er bis zu dem Tag ungeprüft, an dem ein
+# Nutzer ihn braucht – und dann ist es zu spät, ihn zu bemerken.
+
+def test_mps_fehler_loest_genau_einen_cpu_versuch_aus(separator_fabrik, scratch, stille):
+    (scratch / "ergebnis.wav").write_bytes(b"")
+    fabrik = separator_fabrik(
+        ausgaben=["ergebnis.wav"],
+        fehler=[RuntimeError("MPS backend out of memory"), None],
+    )
+
+    pfade = engine.run_model("modell.ckpt", Path("quelle.wav"), stille)
+
+    assert pfade == [scratch / "ergebnis.wav"]
+    assert fabrik.ladevorgaenge == 2, "Modell muss für die CPU neu geladen werden"
+    assert engine._force_cpu is True
+    assert any("CPU" in m for m in stille.meldungen)
+
+
+@pytest.mark.parametrize("text", ["MPS backend out of memory", "not implemented for mps"])
+def test_mps_erkennung_ist_gross_und_kleinschreibung(separator_fabrik, scratch, stille, text):
+    """PyTorch meldet mal "MPS", mal "mps" – beides muss greifen."""
+    separator_fabrik(ausgaben=[], fehler=[RuntimeError(text), None])
+
+    engine.run_model("modell.ckpt", Path("quelle.wav"), stille)
+
+    assert engine._force_cpu is True
+
+
+def test_anderer_fehler_wird_durchgereicht(separator_fabrik, scratch, stille):
+    """Nur MPS-Fehler rechtfertigen einen zweiten Versuch. Alles andere fliegt."""
+    fabrik = separator_fabrik(ausgaben=[], fehler=[ValueError("Datei kaputt")])
+
+    with pytest.raises(ValueError, match="Datei kaputt"):
+        engine.run_model("modell.ckpt", Path("quelle.wav"), stille)
+
+    assert fabrik.ladevorgaenge == 1, "kein zweiter Versuch"
+    assert engine._force_cpu is False
+
+
+def test_kein_zweiter_versuch_wenn_schon_auf_cpu(separator_fabrik, scratch, stille):
+    """Läuft es bereits auf der CPU, ist ein MPS-Fehler nicht mehr erklärbar –
+    dann endlos zu wiederholen würde den Fehler nur verschleiern."""
+    engine._force_cpu = True
+    fabrik = separator_fabrik(ausgaben=[], fehler=[RuntimeError("MPS kaputt")])
+
+    with pytest.raises(RuntimeError, match="MPS kaputt"):
+        engine.run_model("modell.ckpt", Path("quelle.wav"), stille)
+
+    assert fabrik.ladevorgaenge == 1
+
+
+def test_zweiter_mps_fehler_fliegt(separator_fabrik, scratch, stille):
+    """Wenn auch der CPU-Versuch scheitert, gibt es kein drittes Mal."""
+    fabrik = separator_fabrik(
+        ausgaben=[],
+        fehler=[RuntimeError("MPS kaputt"), RuntimeError("MPS immer noch kaputt")],
+    )
+
+    with pytest.raises(RuntimeError, match="immer noch"):
+        engine.run_model("modell.ckpt", Path("quelle.wav"), stille)
+
+    assert fabrik.ladevorgaenge == 2
+
+
+def test_mps_rueckfall_stellt_stderr_wieder_her(separator_fabrik, scratch, stille):
+    """Der Rückfall tauscht stderr zweimal – am Ende muss das Original stehen."""
+    separator_fabrik(ausgaben=[], fehler=[RuntimeError("MPS kaputt"), None])
+    vorher = sys.stderr
+
+    engine.run_model("modell.ckpt", Path("quelle.wav"), stille)
+
+    assert sys.stderr is vorher
+
+
+def test_mps_rueckfall_stellt_stderr_auch_bei_fehler_wieder_her(separator_fabrik, scratch, stille):
+    separator_fabrik(ausgaben=[], fehler=[ValueError("kaputt")])
+    vorher = sys.stderr
+
+    with pytest.raises(ValueError):
+        engine.run_model("modell.ckpt", Path("quelle.wav"), stille)
+
+    assert sys.stderr is vorher
+
+
+def test_mps_rueckfall_meldet_weiter_fortschritt(separator_fabrik, scratch, stille):
+    """Nach dem Tausch muss der Tap wieder hängen, sonst friert die Anzeige ein."""
+    meldungen = []
+    separator_fabrik(ausgaben=[], fehler=[RuntimeError("MPS kaputt"), None],
+                     fortschritt=["40%|"])
+
+    engine.run_model("modell.ckpt", Path("quelle.wav"), stille,
+                     on_progress=lambda p, d: meldungen.append((p, d)))
+
+    assert (40, 1) in meldungen
