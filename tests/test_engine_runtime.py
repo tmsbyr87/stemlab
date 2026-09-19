@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -47,10 +48,13 @@ class FakeSeparator:
     """
 
     def __init__(self, preset=None, ausgaben=None, fehler=None,
-                 torch_device="cpu", onnx_execution_provider=None):
+                 torch_device="cpu", onnx_execution_provider=None,
+                 fortschritt=None, logmeldungen=None):
         self.preset = preset
         self._ausgaben = list(ausgaben or [])
         self._fehler = list(fehler or [])
+        self._fortschritt = list(fortschritt or [])
+        self._logmeldungen = list(logmeldungen or [])
         self.torch_device = torch_device
         self.onnx_execution_provider = onnx_execution_provider
         self.load_model_aufrufe: list[dict] = []
@@ -61,6 +65,10 @@ class FakeSeparator:
 
     def separate(self, pfad):
         self.separate_aufrufe.append(pfad)
+        for text in self._fortschritt:
+            sys.stderr.write(text)
+        for text in self._logmeldungen:
+            logging.getLogger("audio_separator").info(text)
         if self._fehler:
             fehler = self._fehler.pop(0)
             if fehler is not None:
@@ -650,3 +658,116 @@ def test_make_separator_schreibt_in_die_stemlab_ordner(monkeypatch):
     assert kwargs["model_file_dir"] == str(engine.MODEL_CACHE)
     assert kwargs["output_dir"] == str(engine.SCRATCH)
     assert kwargs["output_format"] == "WAV"
+
+
+# --------------------------------------------------------------------------- #
+# run_model – Pfadauflösung
+# --------------------------------------------------------------------------- #
+
+@pytest.fixture
+def scratch(tmp_path, monkeypatch):
+    """Legt SCRATCH in einen Testordner, damit nichts in Application Support landet."""
+    ordner = tmp_path / "scratch"
+    ordner.mkdir()
+    monkeypatch.setattr(engine, "SCRATCH", ordner)
+    return ordner
+
+
+def test_run_model_loest_relative_pfade_gegen_scratch_auf(separator_fabrik, scratch, stille):
+    """audio_separator liefert blanke Dateinamen – die liegen im Ausgabeordner."""
+    (scratch / "song_(Vocals).wav").write_bytes(b"")
+    separator_fabrik(ausgaben=["song_(Vocals).wav"])
+
+    pfade = engine.run_model("modell.ckpt", Path("quelle.wav"), stille)
+
+    assert pfade == [scratch / "song_(Vocals).wav"]
+
+
+def test_run_model_laesst_absolute_pfade_stehen(separator_fabrik, scratch, tmp_path, stille):
+    woanders = tmp_path / "woanders.wav"
+    woanders.write_bytes(b"")
+    separator_fabrik(ausgaben=[str(woanders)])
+
+    assert engine.run_model("modell.ckpt", Path("quelle.wav"), stille) == [woanders]
+
+
+def test_run_model_laesst_nicht_existierende_dateien_weg(separator_fabrik, scratch, stille):
+    """Die Bibliothek nennt gelegentlich Dateien, die sie nicht geschrieben hat."""
+    (scratch / "da.wav").write_bytes(b"")
+    separator_fabrik(ausgaben=["da.wav", "fehlt.wav"])
+
+    assert engine.run_model("modell.ckpt", Path("quelle.wav"), stille) == [scratch / "da.wav"]
+
+
+def test_run_model_haelt_die_reihenfolge_der_stems(separator_fabrik, scratch, stille):
+    for name in ("a.wav", "b.wav", "c.wav"):
+        (scratch / name).write_bytes(b"")
+    separator_fabrik(ausgaben=["c.wav", "a.wav", "b.wav"])
+
+    pfade = engine.run_model("modell.ckpt", Path("quelle.wav"), stille)
+    assert [p.name for p in pfade] == ["c.wav", "a.wav", "b.wav"]
+
+
+def test_run_model_reicht_die_quelle_als_text_durch(separator_fabrik, scratch, stille):
+    fabrik = separator_fabrik(ausgaben=[])
+    engine.run_model("modell.ckpt", Path("/pfad/quelle.wav"), stille)
+
+    assert fabrik.letzter.separate_aufrufe == ["/pfad/quelle.wav"]
+
+
+def test_run_model_merkt_sich_das_geraet(separator_fabrik, scratch, stille):
+    """Die Oberfläche zeigt danach an, worauf die Trennung lief."""
+    separator_fabrik(ausgaben=[], torch_device="mps:0")
+    engine.run_model("modell.ckpt", Path("quelle.wav"), stille)
+    assert engine.run_model.last_device == "mps"
+
+    separator_fabrik(ausgaben=[], torch_device="cpu")
+    engine.run_model("anderes.ckpt", Path("quelle.wav"), stille)
+    assert engine.run_model.last_device == "cpu"
+
+
+def test_run_model_meldet_fortschritt(separator_fabrik, scratch, stille):
+    """Der ProgressTap hängt während separate() an stderr und füttert die Oberfläche."""
+    meldungen = []
+    fabrik = separator_fabrik(ausgaben=[], fortschritt=["30%|", "60%|"])
+
+    engine.run_model("modell.ckpt", Path("quelle.wav"), stille,
+                     on_progress=lambda p, d: meldungen.append((p, d)))
+
+    assert meldungen == [(30, 1), (60, 1)]
+    assert fabrik.ladevorgaenge == 1
+
+
+def test_run_model_stellt_stderr_wieder_her(separator_fabrik, scratch, stille):
+    separator_fabrik(ausgaben=[])
+    vorher = sys.stderr
+    engine.run_model("modell.ckpt", Path("quelle.wav"), stille)
+    assert sys.stderr is vorher
+
+
+def test_run_model_haengt_den_logtap_wieder_ab(separator_fabrik, scratch, stille):
+    """Sonst sammeln sich mit jedem Job weitere Handler am Bibliotheks-Logger."""
+    separator_fabrik(ausgaben=[])
+    logger = logging.getLogger("audio_separator")
+    vorher = len(logger.handlers)
+
+    engine.run_model("modell.ckpt", Path("quelle.wav"), stille)
+
+    assert len(logger.handlers) == vorher
+
+
+def test_run_model_reicht_bibliotheksmeldungen_durch(separator_fabrik, scratch, stille, monkeypatch):
+    """audio_separator loggt seinen Fortschritt – der gehört in die Oberfläche.
+
+    Im Betrieb setzt _make_separator log_level=INFO, und die Bibliothek legt
+    das auf ihrem Logger ab. Der Fake tut das nicht, also hier von Hand –
+    sonst verwirft logging die Meldung auf WARNING-Niveau, bevor der Tap
+    sie überhaupt sieht.
+    """
+    logger = logging.getLogger("audio_separator")
+    monkeypatch.setattr(logger, "level", logging.INFO)
+    separator_fabrik(ausgaben=[], logmeldungen=["Lade Gewichte"])
+
+    engine.run_model("modell.ckpt", Path("quelle.wav"), stille)
+
+    assert "Lade Gewichte" in stille.meldungen
