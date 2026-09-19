@@ -141,3 +141,111 @@ def test_get_separator_nutzt_eingeschleusten_separator(separator_fabrik, stille)
     assert sep is fabrik.letzter
     assert sep.load_model_aufrufe == [{"model_filename": "modell.ckpt"}]
     assert sep.separate_aufrufe == []
+
+
+# --------------------------------------------------------------------------- #
+# _ProgressTap
+# --------------------------------------------------------------------------- #
+
+class FakeStream:
+    """Nimmt entgegen, was der Tap durchreicht."""
+
+    def __init__(self, tty: bool = False):
+        self.geschrieben: list[str] = []
+        self.geleert = 0
+        self._tty = tty
+        self.encoding = "utf-8"
+
+    def write(self, text: str) -> int:
+        self.geschrieben.append(text)
+        return len(text)
+
+    def flush(self) -> None:
+        self.geleert += 1
+
+    def isatty(self) -> bool:
+        return self._tty
+
+
+@pytest.fixture
+def tap():
+    """Liefert (Tap, Strom, Meldungen) – Meldungen sind (Prozent, Durchgang)."""
+    def bauen(tty: bool = False):
+        strom = FakeStream(tty)
+        meldungen: list[tuple[int, int]] = []
+        return engine._ProgressTap(strom, lambda p, d: meldungen.append((p, d))), strom, meldungen
+    return bauen
+
+
+def test_progresstap_liest_prozente_aus_tqdm(tap):
+    tapper, _strom, meldungen = tap()
+    tapper.write(" 42%|####      | 42/100")
+    assert meldungen == [(42, 1)]
+
+
+def test_progresstap_reicht_text_unveraendert_weiter(tap):
+    """Der Tap spiegelt stderr, er verschluckt es nicht."""
+    tapper, strom, _ = tap()
+    tapper.write("irgendwas ohne Prozent")
+    assert strom.geschrieben == ["irgendwas ohne Prozent"]
+
+
+def test_progresstap_mehrere_prozente_in_einem_block(tap):
+    tapper, _strom, meldungen = tap()
+    tapper.write("10%| ... 20%| ... 30%|")
+    assert meldungen == [(10, 1), (20, 1), (30, 1)]
+
+
+def test_progresstap_zaehlt_durchgang_hoch_wenn_prozent_zurueckfaellt(tap):
+    """Ein neuer tqdm-Balken beginnt wieder bei null – das ist Durchgang 2."""
+    tapper, _strom, meldungen = tap()
+    tapper.write("50%|")
+    tapper.write("10%|")
+    assert meldungen == [(50, 1), (10, 2)]
+
+
+@pytest.mark.parametrize("zweiter, erwarteter_durchgang", [
+    # Regel: pct + 5 < last. Kleine Rückschritte sind tqdm-Rauschen,
+    # erst ein echter Sprung nach unten ist ein neuer Durchgang.
+    (46, 1),   # 46+5=51, nicht < 50
+    (45, 1),   # 45+5=50, nicht < 50
+    (44, 2),   # 44+5=49  < 50
+    (0, 2),
+])
+def test_progresstap_grenze_der_durchgangserkennung(tap, zweiter, erwarteter_durchgang):
+    tapper, _strom, meldungen = tap()
+    tapper.write("50%|")
+    tapper.write(f"{zweiter}%|")
+    assert meldungen[-1] == (zweiter, erwarteter_durchgang)
+
+
+def test_progresstap_werfender_rueckruf_bricht_nicht_ab(tap):
+    """Ein Fehler in der Oberfläche darf die laufende Trennung nicht killen."""
+    strom = FakeStream()
+    tapper = engine._ProgressTap(strom, lambda _p, _d: 1 / 0)
+    assert tapper.write("50%|") == len("50%|")
+    assert strom.geschrieben == ["50%|"]
+
+
+def test_progresstap_ueberlebt_geschlossenen_strom():
+    """Beim Beenden kann stderr schon zu sein."""
+    class Kaputt:
+        encoding = "utf-8"
+
+        def write(self, _text):
+            raise ValueError("closed")
+
+        def flush(self):
+            raise ValueError("closed")
+
+    tapper = engine._ProgressTap(Kaputt(), lambda _p, _d: None)
+    assert tapper.write("50%|") == len("50%|")
+    tapper.flush()
+
+
+def test_progresstap_meldet_writable_und_isatty(tap):
+    """audio_separator prüft beides, bevor es tqdm anwirft."""
+    tapper, _strom, _ = tap(tty=True)
+    assert tapper.writable() is True
+    assert tapper.isatty() is True
+    assert tap(tty=False)[0].isatty() is False
