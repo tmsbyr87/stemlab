@@ -882,3 +882,33 @@ def test_mps_rueckfall_meldet_weiter_fortschritt(separator_fabrik, scratch, stil
                      on_progress=lambda p, d: meldungen.append((p, d)))
 
     assert (40, 1) in meldungen
+
+
+def test_progresstap_reicht_stromeigenschaften_durch(tap):
+    """audio_separator fragt fileno() und encoding ab, bevor es tqdm anwirft."""
+    class MitFileno(FakeStream):
+        def fileno(self):
+            return 42
+
+    strom = MitFileno()
+    tapper = engine._ProgressTap(strom, lambda _p, _d: None)
+
+    assert tapper.fileno() == 42
+    assert tapper.encoding == "utf-8"
+
+
+def test_progresstap_isatty_wenn_der_strom_keins_kennt():
+    """Ein Strom ohne isatty darf nicht durchschlagen."""
+    class Ohne:
+        def write(self, _text):
+            return 0
+
+    assert engine._ProgressTap(Ohne(), lambda _p, _d: None).isatty() is False
+
+
+def test_progresstap_encoding_faellt_auf_utf8_zurueck():
+    class Ohne:
+        def write(self, _text):
+            return 0
+
+    assert engine._ProgressTap(Ohne(), lambda _p, _d: None).encoding == "utf-8"

@@ -149,3 +149,55 @@ def test_first_available_ohne_modellliste(modellliste):
     """Vor dem ersten Katalogabgleich ist die Liste leer – ohne Netz der Normalfall."""
     modellliste(set())
     assert engine.first_available(["a.ckpt", "b.ckpt"]) == "a.ckpt"
+
+
+# --------------------------------------------------------------------------- #
+# _pretty_stem und _holds_stems
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize("dateiname, erwartet", [
+    ("Song_(Vocals).wav", "vocals"),
+    ("Song_(Vocal).wav", "vocals"),
+    ("Song_(No Vocals).wav", "instrumental"),
+    ("Song_(Instrumental).wav", "instrumental"),
+    ("Song_(Drums).wav", "drums"),
+    # Unbekanntes Label: kleingeschrieben und auf Dateinamen-taugliche
+    # Zeichen reduziert, statt es wegzuwerfen.
+    ("Song_(Lead Guitar 2).wav", "lead_guitar_2"),
+    ("Song_(Strings & Brass).wav", "strings_brass"),
+])
+def test_pretty_stem(dateiname, erwartet):
+    assert engine._pretty_stem(dateiname) == erwartet
+
+
+@pytest.mark.parametrize("dateiname", ["Song.wav", "Song_().wav", "Song_(---).wav"])
+def test_pretty_stem_ohne_brauchbares_label_ist_none(dateiname):
+    assert engine._pretty_stem(dateiname) is None
+
+
+def test_holds_stems_erkennt_audiodateien(tmp_path):
+    (tmp_path / "Song_(Vocals).wav").write_bytes(b"")
+    assert engine._holds_stems(tmp_path) is True
+
+
+@pytest.mark.parametrize("name", ["egal.mp3", "egal.flac"])
+def test_holds_stems_kennt_die_ausgabeformate(tmp_path, name):
+    (tmp_path / name).write_bytes(b"")
+    assert engine._holds_stems(tmp_path) is True
+
+
+def test_holds_stems_ohne_audio_ist_false(tmp_path):
+    (tmp_path / "analysis.json").write_bytes(b"{}")
+    (tmp_path / "notiz.txt").write_bytes(b"")
+    assert engine._holds_stems(tmp_path) is False
+
+
+def test_holds_stems_ignoriert_unterordner(tmp_path):
+    """Ein Ordner namens "x.wav" ist keine Stemdatei."""
+    (tmp_path / "unterordner.wav").mkdir()
+    assert engine._holds_stems(tmp_path) is False
+
+
+def test_holds_stems_auf_nicht_vorhandenem_pfad(tmp_path):
+    assert engine._holds_stems(tmp_path / "gibtsnicht") is False
+    assert engine._holds_stems(tmp_path / "datei.wav") is False
