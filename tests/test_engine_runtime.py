@@ -8,6 +8,7 @@ damit kein Test den nächsten beeinflusst.
 
 from __future__ import annotations
 
+import logging
 import sys
 
 import pytest
@@ -249,3 +250,92 @@ def test_progresstap_meldet_writable_und_isatty(tap):
     assert tapper.writable() is True
     assert tapper.isatty() is True
     assert tap(tty=False)[0].isatty() is False
+
+
+# --------------------------------------------------------------------------- #
+# _LogTap
+# --------------------------------------------------------------------------- #
+
+def _record(text: str, level: int = logging.INFO, args=None) -> logging.LogRecord:
+    return logging.LogRecord("audio_separator", level, __file__, 1, text, args, None)
+
+
+def test_logtap_reicht_meldung_weiter(stille):
+    engine._LogTap(stille).emit(_record("Lade Modell"))
+    assert stille.meldungen == ["Lade Modell"]
+
+
+def test_logtap_setzt_platzhalter_ein(stille):
+    """getMessage() statt record.msg – sonst stünde "%s %%" in der Oberfläche."""
+    engine._LogTap(stille).emit(_record("Modell %s bei %d %%", args=("mdx", 50)))
+    assert stille.meldungen == ["Modell mdx bei 50 %"]
+
+
+def test_logtap_werfender_rueckruf_bricht_nicht_ab():
+    """Logging darf die Trennung nie zum Absturz bringen."""
+    engine._LogTap(lambda _m: 1 / 0).emit(_record("egal"))
+
+
+def test_logtap_haengt_unter_info_nichts_durch(stille):
+    """Handler-Level INFO: DEBUG-Rauschen der Bibliothek bleibt draußen."""
+    logger = logging.getLogger("test-stemlab-logtap")
+    logger.setLevel(logging.DEBUG)
+    tap = engine._LogTap(stille)
+    logger.addHandler(tap)
+    try:
+        logger.debug("unsichtbar")
+        logger.info("sichtbar")
+    finally:
+        logger.removeHandler(tap)
+    assert stille.meldungen == ["sichtbar"]
+
+
+# --------------------------------------------------------------------------- #
+# describe_device
+# --------------------------------------------------------------------------- #
+
+class FakeDevice:
+    def __init__(self, torch_device="cpu", onnx_execution_provider=None):
+        self.torch_device = torch_device
+        self.onnx_execution_provider = onnx_execution_provider
+
+
+@pytest.mark.parametrize("sep, erwartet", [
+    (FakeDevice("mps:0"), "mps"),
+    (FakeDevice("cpu"), "cpu"),
+    (FakeDevice("cuda:0"), "cpu"),
+    # CoreML sticht das Torch-Device: die Trennung läuft dann über ONNX.
+    (FakeDevice("cpu", ["CoreMLExecutionProvider", "CPUExecutionProvider"]), "coreml"),
+    (FakeDevice("mps:0", "CoreMLExecutionProvider"), "coreml"),
+    (FakeDevice("cpu", ["CPUExecutionProvider"]), "cpu"),
+    (FakeDevice("cpu", []), "cpu"),
+])
+def test_describe_device(sep, erwartet):
+    assert engine.describe_device(sep) == erwartet
+
+
+def test_describe_device_ohne_attribute():
+    """Ein Separator ohne torch_device darf nicht durchschlagen."""
+    assert engine.describe_device(object()) == "cpu"
+
+
+def test_detect_device_ohne_torch_ist_cpu(monkeypatch):
+    """Ohne PyTorch – der Normalfall in der CI – bleibt es bei der CPU."""
+    monkeypatch.setitem(sys.modules, "torch", None)
+    assert engine.detect_device() == "cpu"
+
+
+def test_detect_device_respektiert_force_cpu(monkeypatch):
+    """Nach einem MPS-Fehler meldet die Oberfläche nicht weiter "mps"."""
+    engine._force_cpu = True
+    assert engine.detect_device() == "cpu"
+
+
+def test_describe_device_nimmt_nur_den_ersten_provider():
+    """onnxruntime probiert die Provider der Reihe nach: der erste gewinnt.
+
+    Ohne das Entpacken auf provider[0] würde str(liste) geprüft, und ein
+    CoreML weiter hinten in der Liste würde fälschlich als aktiv gemeldet.
+    """
+    sep = FakeDevice("cpu", ["CPUExecutionProvider", "CoreMLExecutionProvider"])
+    assert engine.describe_device(sep) == "cpu"
