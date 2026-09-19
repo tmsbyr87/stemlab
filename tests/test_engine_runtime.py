@@ -59,6 +59,11 @@ class FakeSeparator:
         # engine einen zweiten Separator an. Die Fehlerfolge beschreibt den
         # Ablauf über beide hinweg ("erst MPS-Fehler, dann Erfolg"), nicht
         # das Verhalten je Instanz.
+        #
+        # Verbraucht wird sie in der Reihenfolge der separate()-Aufrufe,
+        # nicht in der Reihenfolge der Erzeugung. Wer einen Test schreibt,
+        # in dem beides auseinanderfällt, bekommt sonst den Fehler des
+        # jeweils anderen Separators.
         self._fehler = fehler if fehler is not None else []
         self._fortschritt = list(fortschritt or [])
         self._logmeldungen = list(logmeldungen or [])
@@ -721,6 +726,40 @@ def test_make_separator_reicht_preset_an_die_bibliothek(monkeypatch):
 
 def test_make_separator_setzt_ohne_preset_kein_ensemble(monkeypatch):
     assert "ensemble_preset" not in _separator_argumente(monkeypatch, None)
+
+
+def test_make_separator_schaltet_unter_force_cpu_die_apple_gpu_ab(monkeypatch):
+    """_force_cpu verbiegt torch.backends.mps.is_available dauerhaft.
+
+    Das ist die folgenreichste Zeile des Moduls: Sie verändert eine
+    fremde Bibliothek im laufenden Prozess. Nach einem MPS-Fehler ist
+    das gewollt – die Bibliothek soll die GPU gar nicht erst anbieten –
+    aber es gehört belegt, statt sich darauf zu verlassen.
+    """
+    import types
+
+    torch = types.ModuleType("torch")
+    torch.backends = types.SimpleNamespace(
+        mps=types.SimpleNamespace(is_available=lambda: True))
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    engine._force_cpu = True
+
+    _separator_argumente(monkeypatch, None)
+
+    assert torch.backends.mps.is_available() is False
+
+
+def test_make_separator_laesst_torch_in_ruhe_ohne_force_cpu(monkeypatch):
+    import types
+
+    torch = types.ModuleType("torch")
+    torch.backends = types.SimpleNamespace(
+        mps=types.SimpleNamespace(is_available=lambda: True))
+    monkeypatch.setitem(sys.modules, "torch", torch)
+
+    _separator_argumente(monkeypatch, None)
+
+    assert torch.backends.mps.is_available() is True
 
 
 def test_make_separator_schreibt_in_die_stemlab_ordner(monkeypatch):
