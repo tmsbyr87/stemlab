@@ -464,3 +464,96 @@ def test_get_choice_kennt_jeden_katalogeintrag():
 def test_get_choice_wirft_bei_unbekanntem_schluessel():
     with pytest.raises(KeyError, match="erfunden"):
         engine.get_choice("erfunden")
+
+
+# --------------------------------------------------------------------------- #
+# Separator-Cache
+# --------------------------------------------------------------------------- #
+
+def test_cache_laedt_dasselbe_modell_kein_zweites_mal(separator_fabrik, stille):
+    """Der Sinn des Caches: ein Album am Stück trennen, ohne jedes Mal neu zu laden."""
+    fabrik = separator_fabrik()
+
+    erster = engine._get_separator("modell.ckpt", None, stille, sys.stderr)
+    zweiter = engine._get_separator("modell.ckpt", None, stille, sys.stderr)
+
+    assert zweiter is erster
+    assert fabrik.ladevorgaenge == 1
+    assert erster.load_model_aufrufe == [{"model_filename": "modell.ckpt"}]
+    assert "ist noch geladen" in stille.meldungen[-1]
+
+
+def test_cache_wird_bei_modellwechsel_verworfen(separator_fabrik, stille):
+    fabrik = separator_fabrik()
+
+    erster = engine._get_separator("a.ckpt", None, stille, sys.stderr)
+    zweiter = engine._get_separator("b.ckpt", None, stille, sys.stderr)
+
+    assert zweiter is not erster
+    assert fabrik.ladevorgaenge == 2
+    assert zweiter.load_model_aufrufe == [{"model_filename": "b.ckpt"}]
+
+
+def test_cache_merkt_sich_das_zuletzt_geladene_modell(separator_fabrik, stille):
+    """Nach dem Wechsel zurück wird erneut geladen – es gibt nur einen Platz."""
+    fabrik = separator_fabrik()
+
+    engine._get_separator("a.ckpt", None, stille, sys.stderr)
+    engine._get_separator("b.ckpt", None, stille, sys.stderr)
+    engine._get_separator("a.ckpt", None, stille, sys.stderr)
+
+    assert fabrik.ladevorgaenge == 3
+    assert engine._sep_cache["key"] == "a.ckpt"
+
+
+def test_cache_haelt_den_separator_im_zustand(separator_fabrik, stille):
+    fabrik = separator_fabrik()
+    sep = engine._get_separator("modell.ckpt", None, stille, sys.stderr)
+
+    assert engine._sep_cache == {"key": "modell.ckpt", "separator": sep}
+    assert fabrik.ladevorgaenge == 1
+
+
+def test_get_separator_stellt_stderr_wieder_her(separator_fabrik, stille):
+    """Während des Ladens hängt ein ProgressTap an stderr – danach nicht mehr."""
+    separator_fabrik()
+    vorher = sys.stderr
+
+    engine._get_separator("modell.ckpt", None, stille, vorher)
+
+    assert sys.stderr is vorher
+
+
+def test_get_separator_stellt_stderr_auch_nach_fehler_wieder_her(monkeypatch, stille):
+    """Ein Ladefehler darf stderr nicht als Tap zurücklassen."""
+    class Kaputt:
+        def load_model(self, **_kwargs):
+            raise RuntimeError("Modell defekt")
+
+    monkeypatch.setattr(engine, "_make_separator", lambda preset=None: Kaputt())
+    vorher = sys.stderr
+
+    with pytest.raises(RuntimeError, match="Modell defekt"):
+        engine._get_separator("modell.ckpt", None, stille, vorher)
+
+    assert sys.stderr is vorher
+    assert engine._sep_cache["separator"] is None
+
+
+def test_get_separator_meldet_ladefortschritt(monkeypatch, stille):
+    """Die Prozentmeldungen kommen in Fünferschritten, damit das Log lesbar bleibt."""
+    class Meldend:
+        def load_model(self, **_kwargs):
+            for pct in (0, 2, 5, 7, 12, 100):
+                sys.stderr.write(f"{pct}%|")
+
+    monkeypatch.setattr(engine, "_make_separator", lambda preset=None: Meldend())
+    engine._get_separator("modell.ckpt", None, stille, sys.stderr)
+
+    prozente = [m for m in stille.meldungen if "%" in m]
+    assert prozente == [
+        "Modell wird geladen … 0 %",
+        "Modell wird geladen … 5 %",
+        "Modell wird geladen … 12 %",
+        "Modell wird geladen … 100 %",
+    ]
