@@ -557,3 +557,96 @@ def test_get_separator_meldet_ladefortschritt(monkeypatch, stille):
         "Modell wird geladen … 12 %",
         "Modell wird geladen … 100 %",
     ]
+
+
+def test_preset_wird_ohne_model_filename_geladen(separator_fabrik, stille):
+    """Beim Ensemble kennt der Separator seine Modelle aus dem Preset."""
+    fabrik = separator_fabrik()
+
+    sep = engine._get_separator("wird_ignoriert.ckpt", "vocal_balanced", stille, sys.stderr)
+
+    assert sep.preset == "vocal_balanced"
+    assert sep.load_model_aufrufe == [{}]
+    assert engine._sep_cache["key"] == "preset:vocal_balanced"
+
+
+def test_preset_und_gleichnamiges_modell_kollidieren_nicht(separator_fabrik, stille):
+    """Der Schlüssel trägt deshalb das Präfix "preset:".
+
+    Ohne das würde ein Ensemble namens "a" den Cache-Eintrag eines Modells
+    namens "a" treffen – und die Trennung liefe mit dem falschen Aufbau,
+    ohne dass irgendwo ein Fehler auftauchte.
+    """
+    fabrik = separator_fabrik()
+
+    als_preset = engine._get_separator("a", "a", stille, sys.stderr)
+    als_modell = engine._get_separator("a", None, stille, sys.stderr)
+
+    assert als_modell is not als_preset
+    assert fabrik.ladevorgaenge == 2
+    assert als_preset.load_model_aufrufe == [{}]
+    assert als_modell.load_model_aufrufe == [{"model_filename": "a"}]
+
+
+def test_preset_trifft_den_cache_beim_zweiten_mal(separator_fabrik, stille):
+    fabrik = separator_fabrik()
+
+    erster = engine._get_separator("egal.ckpt", "vocal_balanced", stille, sys.stderr)
+    zweiter = engine._get_separator("anderes.ckpt", "vocal_balanced", stille, sys.stderr)
+
+    assert zweiter is erster
+    assert fabrik.ladevorgaenge == 1
+
+
+def test_presetwechsel_verwirft_den_cache(separator_fabrik, stille):
+    fabrik = separator_fabrik()
+
+    engine._get_separator("egal.ckpt", "vocal_balanced", stille, sys.stderr)
+    engine._get_separator("egal.ckpt", "instrumental", stille, sys.stderr)
+
+    assert fabrik.ladevorgaenge == 2
+    assert engine._sep_cache["key"] == "preset:instrumental"
+
+
+def _separator_argumente(monkeypatch, preset):
+    """Ruft das echte _make_separator mit gefälschtem Separator und liefert dessen kwargs."""
+    import types
+
+    aufgezeichnet: dict = {}
+
+    class AufzeichnenderSeparator:
+        def __init__(self, **kwargs):
+            aufgezeichnet.update(kwargs)
+
+    paket = types.ModuleType("audio_separator")
+    untermodul = types.ModuleType("audio_separator.separator")
+    untermodul.Separator = AufzeichnenderSeparator
+    paket.separator = untermodul
+    monkeypatch.setitem(sys.modules, "audio_separator", paket)
+    monkeypatch.setitem(sys.modules, "audio_separator.separator", untermodul)
+
+    engine._make_separator(preset)
+    return aufgezeichnet
+
+
+def test_make_separator_reicht_preset_an_die_bibliothek(monkeypatch):
+    """Die übrigen Tests ersetzen _make_separator ganz – hier läuft es echt.
+
+    Sonst bliebe ungeprüft, dass das Preset überhaupt bei der Bibliothek
+    ankommt: die Trennung liefe dann als Einzelmodell, und das Ergebnis
+    wäre schlechter, ohne dass etwas fehlschlägt.
+    """
+    kwargs = _separator_argumente(monkeypatch, "vocal_balanced")
+    assert kwargs["ensemble_preset"] == "vocal_balanced"
+
+
+def test_make_separator_setzt_ohne_preset_kein_ensemble(monkeypatch):
+    assert "ensemble_preset" not in _separator_argumente(monkeypatch, None)
+
+
+def test_make_separator_schreibt_in_die_stemlab_ordner(monkeypatch):
+    """Modelle und Zwischenergebnisse gehören nach Application Support, nicht ins Projekt."""
+    kwargs = _separator_argumente(monkeypatch, None)
+    assert kwargs["model_file_dir"] == str(engine.MODEL_CACHE)
+    assert kwargs["output_dir"] == str(engine.SCRATCH)
+    assert kwargs["output_format"] == "WAV"
