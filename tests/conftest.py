@@ -99,3 +99,143 @@ def g_minor() -> np.ndarray:
 def c_major() -> np.ndarray:
     """C – F – G – C."""
     return progression([("C", "E", "G"), ("F", "A", "C"), ("G", "B", "D"), ("C", "E", "G")])
+
+
+# --------------------------------------------------------------------------- #
+# Gerüst für die engine-Tests
+# --------------------------------------------------------------------------- #
+#
+# engine hält Zustand auf Modulebene und spricht mit audio_separator. Beides
+# braucht in jedem engine-Testmodul dieselbe Behandlung, deshalb steht es hier
+# statt dreimal nebeneinander: die Fixture, die den Zustand zurücksetzt, und
+# die Doppelgänger, die die Bibliothek ersetzen.
+
+import logging  # noqa: E402
+
+import engine  # noqa: E402
+
+
+
+@pytest.fixture(autouse=True)
+def engine_zustand():
+    """Sichert die Modul-Globals von engine und stellt sie danach wieder her.
+
+    _sep_cache wird flach kopiert, nicht per Referenz gehalten: engine ruft
+    darauf .update(), was das Original sonst mitverändern würde.
+    """
+    cache = dict(engine._sep_cache)
+    force_cpu = engine._force_cpu
+    modelle = set(engine._available_models)
+    katalog = {c.key: (c.resolved, c.verified) for c in engine.CATALOG}
+    katalogstatus = dict(engine._catalog_state)
+    try:
+        yield
+    finally:
+        engine._catalog_state.clear()
+        engine._catalog_state.update(katalogstatus)
+        engine._sep_cache.clear()
+        engine._sep_cache.update(cache)
+        engine._force_cpu = force_cpu
+        engine._available_models = modelle
+        for choice in engine.CATALOG:
+            choice.resolved, choice.verified = katalog[choice.key]
+
+
+class FakeSeparator:
+    """Doppelgänger für audio_separator.Separator.
+
+    Hält fest, wie er gerufen wurde, und kann auf Wunsch beim Trennen eine
+    Ausnahme werfen – damit lässt sich der MPS-Rückfall in run_model prüfen,
+    ohne je ein Modell zu laden.
+    """
+
+    def __init__(self, preset=None, ausgaben=None, fehler=None,
+                 torch_device="cpu", onnx_execution_provider=None,
+                 fortschritt=None, logmeldungen=None):
+        self.preset = preset
+        self._ausgaben = list(ausgaben or [])
+        # Geteilte Liste, absichtlich nicht kopiert: Beim MPS-Rückfall legt
+        # engine einen zweiten Separator an. Die Fehlerfolge beschreibt den
+        # Ablauf über beide hinweg ("erst MPS-Fehler, dann Erfolg"), nicht
+        # das Verhalten je Instanz.
+        #
+        # Verbraucht wird sie in der Reihenfolge der separate()-Aufrufe,
+        # nicht in der Reihenfolge der Erzeugung. Wer einen Test schreibt,
+        # in dem beides auseinanderfällt, bekommt sonst den Fehler des
+        # jeweils anderen Separators.
+        self._fehler = fehler if fehler is not None else []
+        self._fortschritt = list(fortschritt or [])
+        self._logmeldungen = list(logmeldungen or [])
+        self.torch_device = torch_device
+        self.onnx_execution_provider = onnx_execution_provider
+        self.load_model_aufrufe: list[dict] = []
+        self.separate_aufrufe: list[str] = []
+
+    def load_model(self, **kwargs):
+        self.load_model_aufrufe.append(kwargs)
+
+    def separate(self, pfad):
+        self.separate_aufrufe.append(pfad)
+        if self._fehler:
+            fehler = self._fehler.pop(0)
+            if fehler is not None:
+                raise fehler
+        # Erst nach der Fehlerprüfung: ein fehlschlagender Versuch meldet
+        # keinen Fortschritt. Sonst wäre nicht unterscheidbar, ob der
+        # ProgressTap nach dem MPS-Rückfall wieder an stderr hängt.
+        for text in self._fortschritt:
+            sys.stderr.write(text)
+        for text in self._logmeldungen:
+            logging.getLogger("audio_separator").info(text)
+        return list(self._ausgaben)
+
+
+class SeparatorFabrik:
+    """Merkt sich jeden erzeugten Fake – _get_separator liefert ihn nur zurück."""
+
+    def __init__(self, **vorgaben):
+        # fehler wird von allen erzeugten Fakes geteilt (siehe FakeSeparator).
+        self.vorgaben = dict(vorgaben)
+        self.vorgaben["fehler"] = list(vorgaben.get("fehler") or [])
+        self.erzeugte: list[FakeSeparator] = []
+
+    def __call__(self, preset=None):
+        sep = FakeSeparator(preset=preset, **self.vorgaben)
+        self.erzeugte.append(sep)
+        return sep
+
+    @property
+    def letzter(self) -> FakeSeparator:
+        return self.erzeugte[-1]
+
+    @property
+    def ladevorgaenge(self) -> int:
+        return len(self.erzeugte)
+
+
+@pytest.fixture
+def separator_fabrik(monkeypatch):
+    """Schleust FakeSeparator an der Stelle ein, an der engine das echte Paket importiert."""
+    def einrichten(**vorgaben) -> SeparatorFabrik:
+        fabrik = SeparatorFabrik(**vorgaben)
+        monkeypatch.setattr(engine, "_make_separator", fabrik)
+        return fabrik
+    return einrichten
+
+
+@pytest.fixture
+def stille():
+    """on_log-Rückruf, der die Meldungen sammelt statt sie zu drucken."""
+    meldungen: list[str] = []
+
+    def sammeln(text: str) -> None:
+        meldungen.append(text)
+
+    sammeln.meldungen = meldungen  # type: ignore[attr-defined]
+    return sammeln
+
+
+# Die Fixture selbst braucht einen Beleg. Zwei aufeinander aufbauende Tests
+# wären dafür untauglich: läuft der prüfende allein (per -k, als Einzelaufruf
+# oder nach einer Umsortierung durch ein Plugin), ist nichts verstellt – er
+# wäre dann auch ohne Fixture grün und würde nichts belegen. Deshalb prüft ein
