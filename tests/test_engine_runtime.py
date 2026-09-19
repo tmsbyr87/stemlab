@@ -28,9 +28,12 @@ def engine_zustand():
     force_cpu = engine._force_cpu
     modelle = set(engine._available_models)
     katalog = {c.key: (c.resolved, c.verified) for c in engine.CATALOG}
+    katalogstatus = dict(engine._catalog_state)
     try:
         yield
     finally:
+        engine._catalog_state.clear()
+        engine._catalog_state.update(katalogstatus)
         engine._sep_cache.clear()
         engine._sep_cache.update(cache)
         engine._force_cpu = force_cpu
@@ -359,9 +362,51 @@ def test_detect_device_ohne_torch_ist_cpu(monkeypatch):
     assert engine.detect_device() == "cpu"
 
 
+def _torch_mit_mps(monkeypatch, verfuegbar=True, prozessor="arm"):
+    """Stellt ein torch mit verfügbarer Apple-GPU nach.
+
+    Ohne das prüft ein Test auf "cpu" gar nichts: Fehlt torch – der
+    Normalfall in der CI –, liefert detect_device ohnehin "cpu", ganz
+    gleich was _force_cpu sagt. Der Test wäre dort grün und leer.
+    """
+    import types
+
+    torch = types.ModuleType("torch")
+    torch.backends = types.SimpleNamespace(
+        mps=types.SimpleNamespace(is_available=lambda: verfuegbar))
+    monkeypatch.setitem(sys.modules, "torch", torch)
+
+    plattform = types.ModuleType("platform")
+    plattform.uname = lambda: types.SimpleNamespace(processor=prozessor)
+    monkeypatch.setitem(sys.modules, "platform", plattform)
+
+
+def test_detect_device_meldet_mps_auf_apple_silicon(monkeypatch):
+    """Gegenstück zu den cpu-Fällen: sonst wäre nie belegt, dass mps
+    überhaupt jemals herauskommt."""
+    _torch_mit_mps(monkeypatch)
+    assert engine.detect_device() == "mps"
+
+
 def test_detect_device_respektiert_force_cpu(monkeypatch):
-    """Nach einem MPS-Fehler meldet die Oberfläche nicht weiter "mps"."""
+    """Nach einem MPS-Fehler meldet die Oberfläche nicht weiter "mps".
+
+    Die Apple-GPU ist hier ausdrücklich verfügbar – nur _force_cpu
+    verhindert sie. Ohne dieses Nachstellen prüfte der Test nichts.
+    """
+    _torch_mit_mps(monkeypatch)
     engine._force_cpu = True
+    assert engine.detect_device() == "cpu"
+
+
+def test_detect_device_ohne_apple_silicon_ist_cpu(monkeypatch):
+    """Intel-Mac: mps meldet sich verfügbar, taugt aber nicht."""
+    _torch_mit_mps(monkeypatch, prozessor="i386")
+    assert engine.detect_device() == "cpu"
+
+
+def test_detect_device_ohne_verfuegbares_mps_ist_cpu(monkeypatch):
+    _torch_mit_mps(monkeypatch, verfuegbar=False)
     assert engine.detect_device() == "cpu"
 
 
@@ -821,6 +866,12 @@ def test_mps_fehler_loest_genau_einen_cpu_versuch_aus(separator_fabrik, scratch,
     assert fabrik.ladevorgaenge == 2, "Modell muss für die CPU neu geladen werden"
     assert engine._force_cpu is True
     assert any("CPU" in m for m in stille.meldungen)
+    # Beide Separatoren wurden gerufen – und das Ergebnis stammt vom zweiten.
+    # Ohne diese Prüfung bliebe offen, ob run_model den neu geladenen
+    # Separator überhaupt verwendet oder still am gescheiterten festhält.
+    assert fabrik.erzeugte[0].separate_aufrufe == ["quelle.wav"]
+    assert fabrik.erzeugte[1].separate_aufrufe == ["quelle.wav"]
+    assert fabrik.letzter is fabrik.erzeugte[1]
 
 
 @pytest.mark.parametrize("text", ["MPS backend out of memory", "not implemented for mps"])
