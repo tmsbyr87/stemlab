@@ -339,3 +339,128 @@ def test_describe_device_nimmt_nur_den_ersten_provider():
     """
     sep = FakeDevice("cpu", ["CPUExecutionProvider", "CoreMLExecutionProvider"])
     assert engine.describe_device(sep) == "cpu"
+
+
+# --------------------------------------------------------------------------- #
+# Katalogauflösung
+# --------------------------------------------------------------------------- #
+
+def test_flatten_findet_modellnamen_in_verschachtelter_struktur():
+    """list_supported_model_files() liefert verschachtelte dicts – Namen stehen
+    mal als Schlüssel, mal als Wert."""
+    baum = {
+        "MDX": {"UVR-MDX.onnx": "Beschreibung"},
+        "Demucs": {"Bundle": {"htdemucs.yaml": {"datei": "htdemucs.th"}}},
+        "Liste": [{"tief.pth": 1}],
+        "kein Modell": "einfach Text",
+    }
+    assert set(engine._flatten_model_names(baum)) == {
+        "UVR-MDX.onnx", "htdemucs.yaml", "htdemucs.th", "tief.pth",
+    }
+
+
+def test_flatten_beachtet_blanke_strings_in_listen_nicht():
+    """Festgehalten, weil es asymmetrisch aussieht: ein Modellname als
+    dict-Schlüssel oder -Wert zählt, als blanker Listeneintrag nicht.
+
+    In der echten Modellliste stehen in Listen nur Stem-Namen ("vocals",
+    "drums"), nie Dateinamen – deshalb ist das kein Fehler, sondern nur
+    eine Kante, über die man beim Lesen stolpert.
+    """
+    assert list(engine._flatten_model_names(["roformer.ckpt"])) == []
+    assert list(engine._flatten_model_names({"k": "roformer.ckpt"})) == ["roformer.ckpt"]
+
+
+def test_flatten_ignoriert_fremde_endungen():
+    assert list(engine._flatten_model_names({"liesmich.txt": "a.json"})) == []
+
+
+def _fake_probe(monkeypatch, modelle=None, fehler=None):
+    """Schleust eine gefälschte Modellliste ein.
+
+    engine ruft `from audio_separator.separator import Separator`. Ein Eintrag
+    in sys.modules reicht dafür nur, wenn er ein echtes Modulobjekt mit dem
+    Attribut ist – sonst greift der Import daneben und verify_catalog nimmt
+    still den Fehlerpfad. Genau so sähe es in der CI aus, die das Paket nicht
+    installiert; der Test würde dann grün aussehen, ohne etwas zu prüfen.
+    """
+    import types
+
+    class FakeSeparator:
+        def __init__(self, **_kwargs):
+            if fehler is not None:
+                raise fehler
+
+        def list_supported_model_files(self):
+            return {"alle": {name: name for name in (modelle or [])}}
+
+    paket = types.ModuleType("audio_separator")
+    untermodul = types.ModuleType("audio_separator.separator")
+    untermodul.Separator = FakeSeparator
+    paket.separator = untermodul
+    monkeypatch.setitem(sys.modules, "audio_separator", paket)
+    monkeypatch.setitem(sys.modules, "audio_separator.separator", untermodul)
+
+
+def test_verify_catalog_loest_einzelmodelle_auf(monkeypatch):
+    einzel = next(c for c in engine.CATALOG if not c.preset)
+    _fake_probe(monkeypatch, modelle=[einzel.candidates[-1]])
+
+    assert engine.verify_catalog() is True
+    assert einzel.resolved == einzel.candidates[-1]
+    assert einzel.verified is True
+    assert engine.catalog_status()["verified"] is True
+
+
+def test_verify_catalog_setzt_resolved_auf_none_wenn_nichts_passt(monkeypatch):
+    einzel = next(c for c in engine.CATALOG if not c.preset)
+    _fake_probe(monkeypatch, modelle=["voellig.anderes.ckpt"])
+
+    engine.verify_catalog()
+    assert einzel.resolved is None
+
+
+def test_verify_catalog_preset_braucht_alle_kandidaten(monkeypatch):
+    """Ein Ensemble läuft nur, wenn jedes beteiligte Modell da ist."""
+    preset = next((c for c in engine.CATALOG if c.preset), None)
+    if preset is None:
+        pytest.skip("Katalog führt kein Ensemble")
+
+    _fake_probe(monkeypatch, modelle=preset.candidates[:-1])
+    engine.verify_catalog()
+    assert preset.resolved is None
+
+    _fake_probe(monkeypatch, modelle=preset.candidates)
+    engine.verify_catalog()
+    assert preset.resolved == preset.preset
+
+
+def test_verify_catalog_ohne_netz_nimmt_ersten_kandidaten(monkeypatch):
+    """Kein Netz ist kein Fehler: StemLab startet trotzdem."""
+    _fake_probe(monkeypatch, fehler=OSError("kein Netz"))
+
+    assert engine.verify_catalog() is False
+    status = engine.catalog_status()
+    assert status["ready"] is True
+    assert status["verified"] is False
+    assert "kein Netz" in status["error"]
+    assert all(c.resolved == c.candidates[0] for c in engine.CATALOG)
+
+
+def test_catalog_loest_beim_ersten_zugriff_auf():
+    """Vor dem Abgleich darf catalog() keine leeren resolved-Felder liefern."""
+    engine._catalog_state["ready"] = False
+    for choice in engine.CATALOG:
+        choice.resolved = None
+
+    assert all(c.resolved is not None for c in engine.catalog())
+
+
+def test_get_choice_kennt_jeden_katalogeintrag():
+    for choice in engine.catalog():
+        assert engine.get_choice(choice.key) is choice
+
+
+def test_get_choice_wirft_bei_unbekanntem_schluessel():
+    with pytest.raises(KeyError, match="erfunden"):
+        engine.get_choice("erfunden")
