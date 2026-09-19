@@ -1,6 +1,6 @@
 # Architecture Overview
 
-Generated: 2026-09-19
+Generated: 2026-09-19 (Testabdeckung aktualisiert)
 
 StemLab ist eine lokale macOS-Anwendung: ein FastAPI-Server mit einer
 Single-File-Weboberfläche, der Musikdateien in Stems zerlegt, sie analysiert
@@ -85,10 +85,17 @@ Keine zyklischen Importe. Die Richtung ist durchgehend sauber: `server` oben,
 [TESTED]   postprocess.py   → test_tags, test_export, test_settings, test_lyrics, test_formats
 [TESTED]   server.py        → test_api (TestClient)
 [TESTED]   static/index.html→ test_frontend (statische Prüfungen)
-[UNTESTED] engine.py        → kein Test importiert engine
+[TESTED]   engine.py        → test_engine, test_engine_runtime, test_engine_ffmpeg
 ```
 
-Geschätzte Abdeckung: 4 von 5 Modulen haben zugehörige Tests (~80 %).
+Alle 5 Module haben Tests. engine.py liegt bei 70 % Zeilenabdeckung;
+nicht abgedeckt sind analyze_only und separate, die analysis und
+postprocess orchestrieren und über test_api an der Kante geprüft sind,
+sowie einzelne Zeilen, die torch oder einen Hintergrund-Thread brauchen.
+
+Die engine-Tests kommen ohne audio_separator, torch und ffmpeg aus –
+nachgewiesen mit einem meta_path-Blocker und gesperrtem PATH. Deshalb
+läuft die CI-Matrix unverändert weiter.
 Die Tests erzeugen ihr Audiomaterial synthetisch (`conftest.py`: `kick_track`,
 `beat_grid`, `progression`, `tiny_png`) und brauchen weder Modelle noch GPU –
 deshalb läuft die CI ohne PyTorch.
@@ -96,9 +103,6 @@ deshalb läuft die CI ohne PyTorch.
 ## Concerns
 
 ```
-[UNTESTED]  engine.py – 683 Zeilen, 0 Tests. Die reinen Teile
-            (safe_song_name, stem_label, _pretty_stem, _fold/first_available,
-            is_video, catalog-Auflösung) wären ohne Modelle testbar.
 [LARGE]     postprocess.py 1100 Z. · static/index.html 1609 Z. ·
             server.py 849 Z. – jeweils deutlich über 300 Zeilen.
 [MIXED]     postprocess.py bündelt Tags, DJ-Export, Audiobearbeitung
