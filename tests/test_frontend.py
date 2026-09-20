@@ -1146,3 +1146,46 @@ def test_seitenleiste_folgt_dem_laufenden_job(html):
     assert fn, "renderJob nicht gefunden"
     assert "renderSeitenleiste()" in fn.group(0), \
         "Die Seitenleiste muss bei jedem Job-Ereignis nachziehen"
+
+
+def test_profilbereich_laesst_sich_wieder_schliessen(html):
+    """Einmal geöffnet blieb er für immer stehen – auch wenn man längst
+    wieder an einem Song arbeitet. Ein zweiter Klick muss ihn schließen."""
+    # Der Eintrag ist als umschaltbar gekennzeichnet …
+    liste = re.search(r"const BEREICHE = \[(.*?)\];", html, re.S)
+    eintrag = re.search(r"\{ ziel: 'bereich-profil'[^}]*\}", liste.group(1), re.S)
+    assert eintrag and "umschalten: true" in eintrag.group(0), \
+        "Der Profil-Eintrag muss umschalten, nicht nur öffnen"
+    # … und der Klick wertet das aus.
+    assert re.search(r"if \(b\.umschalten\) \{[^}]*bereich\.hidden = !oeffnen", html, re.S), \
+        "Ein zweiter Klick muss den Bereich schließen"
+
+
+def test_profilknopf_zeigt_ob_der_bereich_offen_ist(html):
+    """Ein Eintrag, der etwas ein- und ausblendet, muss zeigen welcher
+    Zustand gerade gilt – sonst klickt man ins Leere."""
+    liste = re.search(r"const BEREICHE = \[(.*?)\];", html, re.S)
+    eintrag = re.search(r"\{ ziel: 'bereich-profil'[^}]*\}", liste.group(1))
+    assert eintrag and "aktiv" in eintrag.group(0), \
+        "Der Profil-Eintrag muss seinen Zustand melden können"
+    # Und die Seitenleiste muss ihn auswerten.
+    fn = re.search(r"function renderSeitenleiste\(.*?\n\}", html, re.S)
+    assert fn and "b.aktiv" in fn.group(0), \
+        "Die Seitenleiste muss den Zustand anzeigen"
+
+
+def test_bereichswechsel_schliesst_das_profil(html):
+    """Wer zu einem Song zurückgeht, braucht das Profil nicht mehr –
+    es gehört zur Sammlung, nicht zum einzelnen Track."""
+    fn = re.search(r"function verlasseAktuellenSong\(.*?\n\}", html, re.S)
+    assert fn and "bereich-profil" in fn.group(0), \
+        "Das Profil gehört beim Verlassen mit weggeräumt"
+
+
+def test_songwahl_schliesst_das_profil(html):
+    """Wer einen Song aus der Liste öffnet, arbeitet an ihm – das Profil
+    der Sammlung hat dann nichts mehr auf dem Schirm zu suchen."""
+    fn = re.search(r"async function openAnalysis\(.*?\n\}", html, re.S)
+    assert fn, "openAnalysis nicht gefunden"
+    assert "bereich-profil" in fn.group(0), \
+        "Beim Öffnen eines Songs muss das Profil weichen"

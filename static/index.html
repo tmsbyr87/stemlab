@@ -971,6 +971,10 @@ async function openAnalysis(a) {
     renderJob(d);
     const karte = state.jobs.get(d.id);
     if (karte) { karte.dataset.gewaehlt = '1'; schliesseAndereKarten(karte); }
+    // Wer einen Song öffnet, arbeitet an ihm – das Profil der Sammlung
+    // hat dann nichts mehr auf dem Schirm zu suchen.
+    $('bereich-profil').hidden = true;
+    renderSeitenleiste();
     state.infoTrack = d; renderInfospalte();
     renderTable();
     flash(karte);
@@ -2383,7 +2387,10 @@ const BEREICHE = [
   // widersinnig.
   { ziel: 'bereich-neu',      label: 'Neuer Track', verlaesst: true },
   { ziel: 'bereich-analysen', label: 'Analysen', zahl: () => state.analyses.length, verlaesst: true },
-  { ziel: 'bereich-profil',   label: 'Profil', verlaesst: true },
+  // Das Profil ist ein Werkzeug, kein Dauergast: Es klappt auf und wieder
+  // zu, und der Eintrag zeigt, welcher Zustand gerade gilt.
+  { ziel: 'bereich-profil',   label: 'Profil', verlaesst: true, umschalten: true,
+    aktiv: () => !$('bereich-profil').hidden },
   { ziel: 'jobs-card',        label: 'In Arbeit', zahl: () => laufendeJobs(), nurWennGefuellt: true },
 ];
 
@@ -2433,6 +2440,10 @@ function verlasseAktuellenSong() {
   }
   state.infoTrack = null;
   renderInfospalte();
+  // Das Profil gehört zur Sammlung, nicht zum einzelnen Track. Wer zu
+  // einem Song zurückgeht, braucht es nicht mehr auf dem Schirm.
+  const bereich = $('bereich-profil');
+  if (bereich) bereich.hidden = true;
   updateQueue();
 }
 
@@ -2443,12 +2454,20 @@ function renderSeitenleiste() {
   for (const b of BEREICHE) {
     const n = b.zahl ? b.zahl() : 0;
     if (b.nurWennGefuellt && !n) continue;
-    const knopf = el('button', null, b.label);
+    const knopf = el('button', b.aktiv && b.aktiv() ? 'on' : null, b.label);
     knopf.dataset.ziel = b.ziel;
     if (b.zahl) knopf.append(Object.assign(el('span', 'zahl'), { textContent: String(n) }));
     knopf.onclick = () => {
+      if (b.umschalten) {
+        const bereich = $(b.ziel);
+        const oeffnen = bereich.hidden;
+        if (b.verlaesst && oeffnen) verlasseAktuellenSong();
+        bereich.hidden = !oeffnen;
+        if (oeffnen) { ladeProfil(); bereich.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+        renderSeitenleiste();
+        return;
+      }
       if (b.verlaesst) verlasseAktuellenSong();
-      if (b.ziel === 'bereich-profil') { $('bereich-profil').hidden = false; ladeProfil(); }
       const ziel = document.getElementById(b.ziel);
       if (ziel) ziel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
