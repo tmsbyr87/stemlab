@@ -133,3 +133,21 @@ def test_schwellen_haben_die_erwartete_ordnung():
     fliegt ohnehin schon raus.
     """
     assert postprocess.SILENCE_DB < postprocess.FILLER_DB < 0
+
+
+# --------------------------------------------------------------------------- #
+# transcribe – die Teile ohne Whisper
+# --------------------------------------------------------------------------- #
+#
+# Der eigentliche Lauf braucht mlx-whisper oder faster-whisper; beide sind
+# in der CI nicht installiert, und ein Test, der sie doch anwirft, zieht ein
+# Modell aus dem Netz und läuft eine halbe Minute. Erreichbar und schnell
+# prüfbar ist nur die Eingangsbedingung.
+#
+# Dass transcribe den Vocal-Stem dem vollen Mix vorzieht, bleibt damit
+# ungetestet. Das wäre erst mit einem eingeschleusten Whisper sinnvoll –
+# siehe ROADMAP-postprocess.md, Grenzen.
+
+def test_transcribe_ohne_audio_wirft(tmp_path, stille):
+    with pytest.raises(RuntimeError, match="Keine Audiodatei"):
+        postprocess.transcribe(tmp_path, None, stille)

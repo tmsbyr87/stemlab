@@ -165,3 +165,85 @@ def test_leerer_ordner_meldet_nichts(tmp_path):
     gesagt = []
     assert postprocess.tag_folder(tmp_path, ANALYSE, "Leer", False, gesagt.append) == []
     assert gesagt == []
+
+
+# --------------------------------------------------------------------------- #
+# tag_file je Format
+# --------------------------------------------------------------------------- #
+
+def _tonspur(pfad, sekunden=0.3, sr=44100):
+    sf.write(str(pfad), np.zeros(int(sekunden * sr), dtype="float32"), sr)
+    return pfad
+
+
+@pytest.mark.parametrize("endung", [".wav", ".flac"])
+def test_tag_file_schreibt_in_beide_formate(tmp_path, endung):
+    """WAV geht über ID3, FLAC über Vorbis-Kommentare – zwei ganz
+    verschiedene Wege durch dieselbe Funktion."""
+    pfad = _tonspur(tmp_path / f"vocals{endung}")
+
+    postprocess.tag_file(pfad, 128.0, "8A", "8A", "Mein Song", "Vocals")
+
+    tags = postprocess.read_tags(pfad)
+    assert tags["title"] == "Mein Song – Vocals"
+    assert tags["album"] == "Mein Song"
+    assert tags["bpm"] == "128"
+    assert tags["key"] == "8A"
+
+
+@pytest.mark.parametrize("endung", [".wav", ".flac"])
+def test_tag_file_rundet_das_tempo(tmp_path, endung):
+    pfad = _tonspur(tmp_path / f"vocals{endung}")
+
+    postprocess.tag_file(pfad, 127.6, "8A", "8A", "Song", "Vocals")
+
+    assert postprocess.read_tags(pfad)["bpm"] == "128"
+
+
+@pytest.mark.parametrize("endung", [".wav", ".flac"])
+def test_tag_file_ohne_tempo_schreibt_kein_bpm(tmp_path, endung):
+    pfad = _tonspur(tmp_path / f"vocals{endung}")
+
+    postprocess.tag_file(pfad, 0, "8A", "8A", "Song", "Vocals")
+
+    assert not postprocess.read_tags(pfad).get("bpm")
+
+
+@pytest.mark.parametrize("endung", [".wav", ".flac"])
+def test_tag_file_ohne_tonart_schreibt_keinen_key(tmp_path, endung):
+    pfad = _tonspur(tmp_path / f"vocals{endung}")
+
+    postprocess.tag_file(pfad, 128.0, "", "", "Song", "Vocals")
+
+    assert not postprocess.read_tags(pfad).get("key")
+
+
+@pytest.mark.parametrize("endung", [".wav", ".flac"])
+def test_tag_file_schreibt_camelot_in_den_kommentar(tmp_path, endung):
+    pfad = _tonspur(tmp_path / f"vocals{endung}")
+
+    postprocess.tag_file(pfad, 128.0, "Am", "8A", "Song", "Vocals")
+
+    assert "Camelot 8A" in postprocess.read_tags(pfad)["comment"]
+
+
+@pytest.mark.parametrize("endung", [".wav", ".flac"])
+def test_tag_file_ohne_camelot_kein_kommentar(tmp_path, endung):
+    """"–" ist der Platzhalter für "unbekannt" und gehört nicht in die Datei."""
+    pfad = _tonspur(tmp_path / f"vocals{endung}")
+
+    postprocess.tag_file(pfad, 128.0, "Am", "–", "Song", "Vocals")
+
+    assert not postprocess.read_tags(pfad).get("comment")
+
+
+def test_tag_file_auf_bereits_getaggter_datei(tmp_path):
+    """Ein zweiter Lauf überschreibt, statt die Tags zu verdoppeln."""
+    pfad = _tonspur(tmp_path / "vocals.wav")
+    postprocess.tag_file(pfad, 100.0, "1A", "1A", "Alt", "Vocals")
+
+    postprocess.tag_file(pfad, 128.0, "8A", "8A", "Neu", "Vocals")
+
+    tags = postprocess.read_tags(pfad)
+    assert tags["bpm"] == "128"
+    assert tags["title"] == "Neu – Vocals"
