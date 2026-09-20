@@ -278,7 +278,7 @@ liegen.
 venv/bin/python -m pytest
 ```
 
-467 Tests, rund zweieinhalb Sekunden. Sie brauchen **keine Audiodateien**: das
+539 Tests, rund drei Sekunden. Sie brauchen **keine Audiodateien**: das
 Testmaterial wird erzeugt, damit die Wahrheit per Konstruktion feststeht. Ein
 Raster aus exakt 124 BPM muss 124 BPM ergeben, eine g-Moll-Kadenz muss g-Moll
 ergeben. So laufen die Tests überall, ohne dass Musik im Repo liegt.
@@ -312,6 +312,11 @@ wenigen Ausnahmen sind gleichwertige Umformungen, die nichts am Verhalten
 | `tests/test_audio_loops.py` | Loop-Schnitt auf Taktgrenzen, Wellenformen |
 | `tests/test_audio_mix.py` | Mixdown-Filterkette, Tonhöhe und Tempo |
 | `tests/test_audio_refine.py` | Vocal-Veredelung, Steuerung des DJ-Exports |
+
+Die Oberfläche hat drei Spalten: links Bereiche und Playlists, in der
+Mitte die Arbeitsfläche, rechts der gewählte Track mit Analysewerten,
+Tags, Exporten und Notizen. Das Erscheinungsbild lässt sich auf hell,
+dunkel oder die Systemvorgabe stellen.
 
 Bei jedem Push laufen sie über GitHub Actions auf macOS gegen Python 3.10 bis
 3.12, dazu `shellcheck` über die Installationsskripte.
