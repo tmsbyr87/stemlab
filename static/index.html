@@ -15,8 +15,12 @@
     --shadow-lg:0 2px 4px rgba(20,23,33,.06),0 24px 60px -20px rgba(20,23,33,.28);
     --r:16px; --r-sm:11px; --wave-bg:#f0f2f7; --dim:.2;
   }
+  /* Drei Zustände: hell, dunkel, oder dem Mac folgen. Die Paletten stehen
+     jeweils zweimal – einmal hinter der Systemvorgabe, einmal hinter
+     data-theme. Anders ließe sich "dunkel, obwohl das System hell steht"
+     nicht ausdrücken: Eine Media Query kennt keine Ausnahme. */
   @media (prefers-color-scheme: dark){
-    :root{
+    :root:not([data-theme="light"]){
       --bg:#0d0f14; --panel:#161922; --panel-2:#1c2029; --panel-3:#222735; --line:#252a36; --line-2:#323848;
       --text:#eef0f6; --text-2:#aab1c4; --muted:#6f778c;
       --accent:#6c9cff; --accent-2:#8bb0ff; --accent-soft:#1a2440; --accent-ring:rgba(108,156,255,.32);
@@ -25,6 +29,24 @@
       --shadow-lg:0 2px 4px rgba(0,0,0,.5),0 30px 70px -24px rgba(0,0,0,.9);
       --wave-bg:#12151c; --dim:.14;
     }
+  }
+  :root[data-theme="dark"]{
+      --bg:#0d0f14; --panel:#161922; --panel-2:#1c2029; --panel-3:#222735; --line:#252a36; --line-2:#323848;
+      --text:#eef0f6; --text-2:#aab1c4; --muted:#6f778c;
+      --accent:#6c9cff; --accent-2:#8bb0ff; --accent-soft:#1a2440; --accent-ring:rgba(108,156,255,.32);
+      --good:#4fd08f; --good-soft:#14301f; --warn:#f0b24f; --warn-soft:#332711; --bad:#ff7b7b; --bad-soft:#3a1d1d;
+      --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -12px rgba(0,0,0,.7);
+      --shadow-lg:0 2px 4px rgba(0,0,0,.5),0 30px 70px -24px rgba(0,0,0,.9);
+      --wave-bg:#12151c; --dim:.14;
+  }
+  :root[data-theme="light"]{
+    --bg:#f5f6f9; --panel:#ffffff; --panel-2:#f7f8fb; --panel-3:#eef0f5; --line:#e3e6ee; --line-2:#d3d7e2;
+    --text:#141721; --text-2:#5a6275; --muted:#8b93a7;
+    --accent:#3b6ff0; --accent-2:#2a56c9; --accent-soft:#eaf0ff; --accent-ring:rgba(59,111,240,.28);
+    --good:#1f9d63; --good-soft:#e6f6ee; --warn:#c77d12; --warn-soft:#fdf3e2; --bad:#d64545; --bad-soft:#fdecec;
+    --shadow:0 1px 2px rgba(20,23,33,.05),0 8px 28px -12px rgba(20,23,33,.16);
+    --shadow-lg:0 2px 4px rgba(20,23,33,.06),0 24px 60px -20px rgba(20,23,33,.28);
+    --r:16px; --r-sm:11px; --wave-bg:#f0f2f7; --dim:.2;
   }
   *{box-sizing:border-box}
   [hidden]{display:none !important}
@@ -415,6 +437,7 @@
     <div class="pills">
       <span class="pill" id="queue-pill" hidden><i></i><span id="queue-text"></span></span>
       <span class="pill" id="device-pill"><i></i><span id="device-text">verbinde …</span></span>
+      <button class="quiet" id="theme-btn" title="Erscheinungsbild: hell, dunkel oder wie im System">Automatisch</button>
       <button class="quiet" id="quit">Beenden</button>
     </div>
   </div>
@@ -1649,6 +1672,39 @@ function fileRow(path) {
   play.onclick = () => audio.paused ? audio.play() : audio.pause(); state.players.set(audio, play);
   row.append(n, play, seek, time, fin); return row;
 }
+
+/* ---------- Erscheinungsbild ----------
+   Drei Zustände statt zwei: Wer "Automatisch" wählt, folgt dem Mac – das
+   ist die Voreinstellung und für die meisten die richtige. Die beiden
+   anderen setzen sich bewusst darüber hinweg, etwa im hellen Büro am
+   dunklen Abend. */
+
+const THEMES = [
+  { wert: 'auto',  label: 'Automatisch' },
+  { wert: 'light', label: 'Hell' },
+  { wert: 'dark',  label: 'Dunkel' },
+];
+
+function themeLesen() {
+  try { return localStorage.getItem('stemlab.theme') || 'auto'; } catch (_) { return 'auto'; }
+}
+
+function themeSetzen(wert) {
+  const eintrag = THEMES.find(t => t.wert === wert) || THEMES[0];
+  if (eintrag.wert === 'auto') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.dataset.theme = eintrag.wert;
+  try { localStorage.setItem('stemlab.theme', eintrag.wert); } catch (_) {}
+  const btn = $('theme-btn');
+  if (btn) { btn.textContent = eintrag.label; btn.dataset.wert = eintrag.wert; }
+}
+
+$('theme-btn').onclick = () => {
+  const jetzt = themeLesen();
+  const i = THEMES.findIndex(t => t.wert === jetzt);
+  themeSetzen(THEMES[(i + 1) % THEMES.length].wert);
+};
+
+themeSetzen(themeLesen());
 
 /* ---------- Ereignisse, Upload, Einstellungen ---------- */
 function connect() {

@@ -247,3 +247,45 @@ def test_tanzbarkeit_stimmt_mit_dem_analysemodul_ueberein(html):
     # Und die Grenzfälle müssen dasselbe ergeben.
     assert analysis.danceability(0, 8, 0.9) == 1
     assert analysis.danceability(124, 8, 0.9) >= 7
+
+
+# --------------------------------------------------------------------------- #
+# Theme
+# --------------------------------------------------------------------------- #
+
+def test_dunkle_palette_gilt_auch_ohne_systemvorgabe(html):
+    """Beide Paletten waren schon da, aber nur hinter prefers-color-scheme.
+    Wer dunkel will, obwohl das System hell steht, kam nicht heran."""
+    assert re.search(r':root\[data-theme="dark"\]', html), \
+        "Die dunkle Palette braucht einen Selektor ohne Media Query"
+    assert re.search(r':root\[data-theme="light"\]', html), \
+        "Und hell muss sich gegen ein dunkles System durchsetzen können"
+
+
+def test_theme_wird_gemerkt(html):
+    """Sonst steht nach jedem Start wieder die Systemvorgabe."""
+    assert re.search(r"localStorage\.getItem\('stemlab\.theme'\)", html), "Lesen fehlt"
+    assert re.search(r"localStorage\.setItem\('stemlab\.theme',", html), "Schreiben fehlt"
+    # Und beim Start muss der gemerkte Wert tatsächlich angewandt werden.
+    assert re.search(r"themeSetzen\(themeLesen\(\)\)", html), \
+        "Der gemerkte Wert muss beim Start greifen"
+
+
+def test_theme_kennt_die_systemvorgabe_als_eigene_wahl(html):
+    """Drei Zustände, nicht zwei: Wer 'automatisch' wählt, folgt dem Mac."""
+    liste = re.search(r"const THEMES = \[(.*?)\];", html, re.S)
+    assert liste, "Die Zustandsliste fehlt"
+    for wert in ("'auto'", "'light'", "'dark'"):
+        assert wert in liste.group(1), f"Zustand {wert} fehlt"
+    # 'auto' entfernt das Attribut, statt einen eigenen Wert zu setzen –
+    # nur so greift wieder die Systemvorgabe.
+    assert re.search(r"removeAttribute\('data-theme'\)", html)
+
+
+def test_theme_umschalter_ist_bedienbar(html):
+    """Ein Knopf, der die drei Zustände durchläuft, mit erkennbarem Ziel."""
+    assert re.search(r'id="theme-btn"', html)
+    assert re.search(r"\$\('theme-btn'\)\.onclick", html), "Der Knopf braucht einen Klick-Handler"
+    # Er muss die Zustände der Reihe nach durchlaufen.
+    assert re.search(r"THEMES\[\(i \+ 1\) % THEMES\.length\]", html), \
+        "Der Knopf muss zum nächsten Zustand weiterschalten"
