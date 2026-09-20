@@ -307,7 +307,13 @@ def folder_summary(folder: Path) -> dict | None:
     analysis = None
     try:
         a = json.loads((folder / "analysis.json").read_text())
-        analysis = {k: (len(v) if isinstance(v, list) else v) for k, v in a.items()}
+        # Lange Listen werden zu ihrer Anzahl: Niemand braucht 800
+        # Beat-Zeitpunkte in der Oberfläche. Die Abschnitte sind die
+        # Ausnahme – ohne sie kann die Arrangement-Ansicht nichts
+        # zeichnen, und "7" sagt nichts über den Aufbau.
+        durchreichen = {"segments"}
+        analysis = {k: (v if k in durchreichen or not isinstance(v, list) else len(v))
+                    for k, v in a.items()}
     except Exception:
         pass
     extras = [str(p) for p in folder.iterdir() if p.is_file() and (p.name.startswith("original") or p.suffix.lower() in TEXT_SUFFIXES + (".mid",))]

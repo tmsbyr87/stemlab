@@ -705,3 +705,30 @@ def test_profil_ueberspringt_kaputte_analysen(client, tmp_path, monkeypatch):
     (kaputt / "analysis.json").write_text("{kein json")
 
     assert client.get("/api/profil").json()["profil"]["anzahl"] == 1
+
+
+def test_folder_reicht_die_abschnitte_durch(client, tmp_path, monkeypatch):
+    """Listen werden in ihre Länge umgewandelt – bei beats und downbeats
+    ist das richtig, denn niemand braucht 800 Zeitpunkte in der Oberfläche.
+
+    Für die Abschnitte gilt das nicht: Ohne sie kann die Arrangement-
+    Ansicht nichts zeichnen, und "7" sagt nichts über den Aufbau.
+    """
+    import json
+    ordner = tmp_path / "Song"; ordner.mkdir()
+    (ordner / "analysis.json").write_text(json.dumps({
+        "bpm": 124, "beats": [0.0, 0.5, 1.0], "downbeats": [0.0, 2.0],
+        "segments": [{"art": "Intro", "takte": 16, "takt_von": 1},
+                     {"art": "Drop", "takte": 32, "takt_von": 17}],
+    }))
+    (ordner / "original.wav").write_bytes(b"")
+    monkeypatch.setattr(server, "output_root", lambda: tmp_path)
+
+    antwort = client.get(f"/api/folder?path={ordner}")
+    a = antwort.json()["analysis"]
+
+    assert isinstance(a["segments"], list), "Die Abschnitte müssen Abschnitte bleiben"
+    assert a["segments"][1]["art"] == "Drop"
+    # Beats und Downbeats dagegen weiterhin als Anzahl.
+    assert a["beats"] == 3
+    assert a["downbeats"] == 2

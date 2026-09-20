@@ -111,6 +111,31 @@
   /* Ein Merkmal je Zeile: links der Name, rechts der Median, darunter ein
      Band, das Spannweite und Kernbereich zeigt. Eine Zahl allein täuscht
      Genauigkeit vor, die bei 24 Tracks nicht da ist. */
+  /* Arrangement: eine Zeile je Stem über der Zeit, darüber Taktleiste und
+     Abschnitte. Der Aufbau folgt dem, was Produzenten aus ihrer DAW kennen –
+     links die Namen, rechts die Spuren auf gemeinsamer Zeitachse. */
+  .arr{display:grid;grid-template-columns:76px 1fr;gap:0 8px;font-size:11px}
+  .arr .kopf{grid-column:2;position:relative;height:16px;border-bottom:1px solid var(--line)}
+  .arr .kopf i{position:absolute;top:0;bottom:0;width:1px;background:var(--line-2)}
+  .arr .kopf i.stark{background:var(--muted)}
+  .arr .kopf span{position:absolute;top:1px;font-size:9.5px;color:var(--muted);
+                  transform:translateX(2px);font-variant-numeric:tabular-nums}
+  .arr .lbl{display:flex;align-items:center;color:var(--text-2);padding:3px 0;
+            overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .arr .lbl i{width:7px;height:7px;border-radius:50%;margin-right:6px;flex:none;
+              background:var(--sc,var(--accent))}
+  .arr .spur{position:relative;height:22px;border-radius:5px;background:var(--panel-3);
+             overflow:hidden;cursor:pointer;margin:2px 0}
+  .arr .spur b{position:absolute;bottom:0;width:1px;background:var(--sc,var(--accent));
+               border-radius:1px}
+  /* Abschnitte als eigene Spur: Sie ordnen alles darunter ein. */
+  .arr .abschnitte{position:relative;height:19px;margin:0 0 4px;cursor:pointer}
+  .arr .abschnitte u{position:absolute;top:0;bottom:0;border-radius:4px;
+                     display:flex;align-items:center;padding:0 5px;font-size:9.5px;
+                     text-decoration:none;color:var(--text);overflow:hidden;
+                     white-space:nowrap;border:1px solid var(--line)}
+  .arr-hinweis{margin-top:9px;color:var(--muted);font-size:11px;line-height:1.5}
+
   .pz{display:grid;grid-template-columns:130px 1fr 92px;gap:12px;align-items:center;
       padding:9px 0;border-bottom:1px solid var(--line)}
   .pz:last-child{border-bottom:0}
@@ -1985,6 +2010,7 @@ const REITER = [
   { schluessel: 'tags',    label: 'Tags' },
   { schluessel: 'export',  label: 'Export' },
   { schluessel: 'text',    label: 'Text' },
+  { schluessel: 'arrangement', label: 'Aufbau' },
 ];
 
 state.infoReiter = 'analyse';
@@ -2091,6 +2117,127 @@ async function reiterText(ziel, d) {
     box.append(zeile);
   }
   block.append(box);
+}
+
+/* Farben für die Abschnittsarten. Laut und tragend warm, ruhig kühl –
+   so erkennt man den Aufbau an der Farbe, bevor man den Namen liest. */
+const ABSCHNITT_FARBE = {
+  'Intro':     'var(--panel-2)',
+  'Aufbau':    'var(--accent-soft)',
+  'Groove':    'var(--accent-soft)',
+  'Drop':      'var(--warn-soft)',
+  'Break':     'var(--panel-3)',
+  'Breakdown': 'var(--panel-3)',
+  'Outro':     'var(--panel-2)',
+};
+
+/* Das Arrangement: eine Zeile je Stem über der Zeit, darüber Taktleiste und
+   Abschnitte. Gebaut aus waveform.json, das ohnehin erzeugt wird – 1200
+   Stützstellen je Spur reichen, um zu sehen, wann was spielt.
+
+   Ohne Strukturdaten entfällt die Abschnittsspur; die Stem-Zeilen bleiben
+   nützlich, denn sie zeigen den Aufbau auch ohne Benennung. */
+async function zeichneArrangement(ziel, d) {
+  const block = el('div', 'info-block');
+  block.append(Object.assign(el('div'), {
+    textContent: 'lade …', style: 'color:var(--muted);font-size:12.5px' }));
+  ziel.append(block);
+
+  let wf = null;
+  try {
+    wf = await (await fetch('/api/text?path=' + encodeURIComponent(d.folder + '/waveform.json'))).json();
+  } catch (_) { wf = null; }
+  if (!state.infoTrack || state.infoTrack.folder !== d.folder) return;
+  block.innerHTML = '';
+
+  const spuren = Object.entries(wf || {}).filter(([n, v]) => Array.isArray(v) && v.length);
+  if (!spuren.length) {
+    block.append(Object.assign(el('div'), {
+      textContent: 'Keine Wellenformdaten für diesen Track.',
+      style: 'color:var(--muted);font-size:12.5px' }));
+    return;
+  }
+
+  const a = d.analysis || {};
+  const takte = a.downbeats || 0;
+  const segmente = a.segments || [];
+  const dauer = a.seconds_analyzed || 0;
+
+  const gitter = el('div', 'arr');
+
+  // Taktleiste: Striche alle 16 Takte, beschriftet. Tanzmusik ist in
+  // Acht- und Sechzehnergruppen gebaut – eine Skala in Sekunden hülfe
+  // beim Auflegen, nicht beim Nachbauen.
+  if (takte > 8) {
+    gitter.append(el('div'));                       // leere Ecke links
+    const kopf = el('div', 'kopf');
+    const schritt = takte > 200 ? 32 : 16;
+    for (let t = 1; t <= takte; t += schritt) {
+      const x = (t - 1) / takte * 100;
+      const strich = el('i', (t - 1) % (schritt * 2) === 0 ? 'stark' : null);
+      strich.style.left = x + '%';
+      kopf.append(strich);
+      const zahl = el('span', null, String(t));
+      zahl.style.left = x + '%';
+      kopf.append(zahl);
+    }
+    gitter.append(kopf);
+  }
+
+  const springe = (anteil) => {
+    const m = state.mixers.get(d.id)
+      || [...state.mixers.values()].find(x => x.d && x.d.folder === d.folder);
+    if (m && dauer) m.seek(anteil * dauer);
+  };
+
+  // Abschnitte als eigene Spur – sie ordnen alles darunter ein.
+  if (segmente.length && takte) {
+    gitter.append(Object.assign(el('div', 'lbl'), { textContent: 'Aufbau' }));
+    const spur = el('div', 'abschnitte');
+    for (const seg of segmente) {
+      const von = (seg.takt_von - 1) / takte;
+      const breite = seg.takte / takte;
+      const kasten = el('u', null, `${seg.art} · ${seg.takte}`);
+      kasten.style.left = von * 100 + '%';
+      kasten.style.width = Math.max(breite * 100, 2) + '%';
+      kasten.style.background = ABSCHNITT_FARBE[seg.art] || 'var(--panel-3)';
+      kasten.title = `${seg.art}, Takt ${seg.takt_von}–${seg.takt_von + seg.takte - 1}`;
+      kasten.onclick = (ev) => { ev.stopPropagation(); springe(von); };
+      spur.append(kasten);
+    }
+    gitter.append(spur);
+  }
+
+  // Je Stem eine Zeile. Die Balkenhöhe folgt dem Pegel – so sieht man,
+  // wann eine Spur einsetzt und wann sie aussetzt.
+  for (const [name, werte] of spuren) {
+    const stem = name.replace(/\.[^.]+$/, '').toLowerCase();
+    const lbl = el('div', 'lbl');
+    lbl.style.setProperty('--sc', COLOR[stem] || 'var(--muted)');
+    lbl.append(el('i'), stem === 'original' ? 'Original' : stem);
+
+    const spur = el('div', 'spur');
+    spur.style.setProperty('--sc', COLOR[stem] || 'var(--muted)');
+    const hoechst = Math.max(...werte) || 1;
+    const n = Math.min(werte.length, 240);      // mehr als 240 Balken sieht niemand
+    for (let i = 0; i < n; i++) {
+      const wert = werte[Math.floor(i / n * werte.length)];
+      const balken = el('b');
+      balken.style.left = (i / n * 100) + '%';
+      balken.style.width = (100 / n) + '%';
+      balken.style.height = Math.max(2, wert / hoechst * 100) + '%';
+      spur.append(balken);
+    }
+    spur.onclick = (ev) => springe(ev.offsetX / spur.clientWidth);
+    gitter.append(lbl, spur);
+  }
+
+  block.append(gitter);
+  if (!segmente.length) {
+    block.append(Object.assign(el('div', 'arr-hinweis'), {
+      textContent: 'Für diesen Track liegen noch keine Abschnitte vor – '
+        + 'die Struktur wird erst bei neuen Analysen bestimmt.' }));
+  }
 }
 
 function reiterHinweis(ziel, text) {
@@ -2264,6 +2411,7 @@ function renderInfospalte() {
   if (state.infoReiter === 'analyse') reiterAnalyse(inhalt, d);
   else if (state.infoReiter === 'tags') reiterTags(inhalt, d);
   else if (state.infoReiter === 'text') reiterText(inhalt, d);
+  else if (state.infoReiter === 'arrangement') zeichneArrangement(inhalt, d);
   else reiterExport(inhalt, d);
   spalte.append(inhalt);
   notizfeld(spalte, d);

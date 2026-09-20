@@ -1189,3 +1189,67 @@ def test_songwahl_schliesst_das_profil(html):
     assert fn, "openAnalysis nicht gefunden"
     assert "bereich-profil" in fn.group(0), \
         "Beim Öffnen eines Songs muss das Profil weichen"
+
+
+# --------------------------------------------------------------------------- #
+# Arrangement-Ansicht
+# --------------------------------------------------------------------------- #
+#
+# Eine Zeile je Stem über der Zeit, darüber die Taktleiste und – wenn
+# vorhanden – Abschnitte und Akkorde. So sieht man auf einen Blick, wie ein
+# Track gebaut ist: wann der Bass einsetzt, wo der Breakdown liegt.
+
+def test_arrangement_hat_eine_zeile_je_stem(html):
+    fn = re.search(r"function zeichneArrangement\(.*?\n\}", html, re.S)
+    assert fn, "Die Arrangement-Ansicht fehlt"
+    assert "waveform" in fn.group(0) or "peaks" in fn.group(0), \
+        "Die Zeilen entstehen aus den vorhandenen Wellenformdaten"
+
+
+def test_arrangement_zeigt_das_taktraster(html):
+    """Produziert wird in Takten. Eine Zeitleiste in Sekunden hülfe beim
+    Auflegen, nicht beim Nachbauen."""
+    fn = re.search(r"function zeichneArrangement\(.*?\n\}", html, re.S)
+    assert fn and re.search(r"takt|Takt", fn.group(0)), \
+        "Die Ansicht braucht ein Taktraster"
+
+
+def test_arrangement_markiert_achtergruppen(html):
+    """Acht- und Sechzehnergruppen sind das Raster, in dem Tanzmusik
+    gebaut ist – die Striche gehören dorthin, nicht alle vier Takte."""
+    fn = re.search(r"async function zeichneArrangement\(.*?\n\}", html, re.S)
+    assert fn, "Die Ansicht fehlt"
+    # Der Abstand der Striche muss ein Vielfaches von acht sein – bei
+    # langen Tracks größer, damit die Leiste lesbar bleibt.
+    schritte = re.search(r"schritt = takte > \d+ \? (\d+) : (\d+)", fn.group(0))
+    assert schritte, "Der Abstand der Taktstriche fehlt"
+    for wert in schritte.groups():
+        assert int(wert) % 8 == 0, f"{wert} ist keine Achtergruppe"
+
+
+def test_arrangement_kommt_ohne_struktur_aus(html):
+    """Ältere Analysen kennen keine Abschnitte. Die Stem-Zeilen sind
+    trotzdem nützlich – sie zeigen das Arrangement auch ohne Benennung."""
+    fn = re.search(r"function zeichneArrangement\(.*?\n\}", html, re.S)
+    assert fn, "Die Ansicht fehlt"
+    assert re.search(r"segments\s*\|\|\s*\[\]|\(a\.segments\s*\|\|", fn.group(0)), \
+        "Fehlende Abschnitte dürfen die Ansicht nicht verhindern"
+
+
+def test_arrangement_ist_anklickbar(html):
+    """Ein Klick auf eine Stelle springt dorthin – sonst wäre es nur ein
+    Bild."""
+    fn = re.search(r"async function zeichneArrangement\(.*?\n\}", html, re.S)
+    assert fn, "Die Ansicht fehlt"
+    assert "m.seek(" in fn.group(0), "Es braucht einen Sprung zur Stelle"
+    # Und zwar sowohl von den Spuren als auch von den Abschnitten aus.
+    assert re.search(r"spur\.onclick = \(ev\) => springe\(", fn.group(0)), \
+        "Ein Klick auf eine Spur muss dorthin springen"
+    assert re.search(r"kasten\.onclick = ", fn.group(0)), \
+        "Ein Klick auf einen Abschnitt ebenso"
+
+
+def test_arrangement_steht_als_reiter_bereit(html):
+    liste = re.search(r"const REITER = \[(.*?)\];", html, re.S)
+    assert liste and "'arrangement'" in liste.group(1), \
+        "Das Arrangement braucht einen eigenen Reiter"
