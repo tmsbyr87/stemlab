@@ -167,21 +167,36 @@ def test_null_und_negativ_zaehlen_nicht_als_messwert():
 # Aus dem Profil ein Raster, das man beim Produzieren danebenlegen kann:
 # Zahlen in Takten, mit denen man im Sequenzer arbeitet.
 
+# Die Blöcke kommen aus den Stems: Sie sagen, wer wann spielt. Die
+# Abschnittsnamen ("Drop", "Groove") gab es einmal – sie stammten aus dem
+# gemasterten Summenpegel und trugen nicht. Deshalb leitet das Raster
+# Intro und Drop aus der Besetzung ab, und die Tests bauen sie genauso.
+_BESETZUNG = {
+    "Intro":     ["drums"],                             # noch ohne Bass
+    "Groove":    ["drums", "bass", "other"],            # trägt schon, wie der Drop
+    "Drop":      ["drums", "bass", "other"],            # Bass ist da
+    "Breakdown": ["bass", "other"],                     # Drums raus
+    "Outro":     ["drums"],
+}
+
+
 def _mit_struktur(*abschnitte, **werte):
-    """Eine Analyse mit Abschnitten. Jeder ist (art, takte)."""
+    """Eine Analyse mit Umbrüchen. Jeder Abschnitt ist (rolle, takte).
+
+    Die Rolle bestimmt nur, welche Stems dort spielen – gespeichert wird
+    die Besetzung, nicht der Name.
+    """
     takt = 0
-    segs = []
-    for art, n in abschnitte:
-        segs.append({"art": art, "takte": n, "takt_von": takt + 1,
-                     "start": takt * 2.0, "ende": (takt + n) * 2.0,
-                     "pegel": 0.3, "bass": 0.4})
+    bloecke = []
+    for rolle, n in abschnitte:
+        bloecke.append({"takt": takt + 1, "takte": n, "stems": list(_BESETZUNG[rolle])})
         takt += n
-    return _a(segments=segs, downbeats=takt, **werte)
+    return _a(umbrueche=bloecke, downbeats=takt, **werte)
 
 
 def test_raster_nennt_die_intro_laenge():
     """Die erste Frage beim Nachbauen: Wie lang läuft es, bevor es losgeht?"""
-    analysen = [_mit_struktur(("Intro", 16), ("Groove", 32), ("Drop", 32)) for _ in range(3)]
+    analysen = [_mit_struktur(("Intro", 16), ("Drop", 32), ("Drop", 32)) for _ in range(3)]
 
     r = profil.raster(analysen)
 
@@ -191,7 +206,7 @@ def test_raster_nennt_die_intro_laenge():
 def test_raster_nennt_den_ersten_drop():
     """Der Takt, an dem der erste Drop beginnt – in Takten, nicht in
     Sekunden, weil man im Sequenzer in Takten arbeitet."""
-    analysen = [_mit_struktur(("Intro", 16), ("Groove", 48), ("Drop", 32)) for _ in range(3)]
+    analysen = [_mit_struktur(("Intro", 64), ("Drop", 32)) for _ in range(3)]
 
     r = profil.raster(analysen)
 
@@ -220,10 +235,10 @@ def test_raster_rundet_auch_krumme_werte():
 
 
 def test_raster_zaehlt_nur_echte_intros():
-    """Beginnt ein Track direkt mit dem Groove, hat er kein Intro – das
-    als 0 zu zählen verschöbe den Median nach unten."""
+    """Steht der Bass von Anfang an, gibt es kein Intro – das als 0 zu
+    zählen verschöbe den Median nach unten."""
     mit = [_mit_struktur(("Intro", 16), ("Drop", 32)) for _ in range(3)]
-    ohne = [_mit_struktur(("Groove", 32), ("Drop", 32)) for _ in range(2)]
+    ohne = [_mit_struktur(("Drop", 32), ("Drop", 32)) for _ in range(2)]
 
     r = profil.raster(mit + ohne)
 
@@ -232,8 +247,8 @@ def test_raster_zaehlt_nur_echte_intros():
 
 
 def test_raster_ohne_struktur_bleibt_leer():
-    """Ältere Analysen kennen keine Abschnitte – dann gibt es kein Raster,
-    statt eines erfundenen."""
+    """Reine Analysen haben keine Stems und damit keine Umbrüche – dann
+    gibt es kein Raster, statt eines erfundenen."""
     r = profil.raster([_a() for _ in range(5)])
 
     assert r["intro_takte"]["anzahl"] == 0
@@ -257,6 +272,19 @@ def test_raster_zaehlt_die_abschnitte():
 def test_raster_ohne_drop():
     """Nicht jeder Track hat einen – dann fehlt die Angabe, statt null zu
     behaupten."""
-    analysen = [_mit_struktur(("Intro", 16), ("Groove", 48)) for _ in range(3)]
+    analysen = [_mit_struktur(("Intro", 16), ("Intro", 48)) for _ in range(3)]
 
     assert profil.raster(analysen)["erster_drop_takt"]["anzahl"] == 0
+
+
+def test_raster_zaehlt_kein_intro_der_laenge_null():
+    """Steht der Bass ab Takt 1, beginnt der Track ohne Vorlauf. Ein Intro
+    von 0 Takten in den Median zu geben zöge ihn nach unten und schlüge
+    ein zu kurzes Intro vor."""
+    sofort = [_mit_struktur(("Drop", 64)) for _ in range(3)]
+    mit = [_mit_struktur(("Intro", 16), ("Drop", 48)) for _ in range(3)]
+
+    r = profil.raster(sofort + mit)
+
+    assert r["intro_takte"]["anzahl"] == 3, "Nur die drei mit Vorlauf haben ein Intro"
+    assert r["intro_takte"]["median"] == 16

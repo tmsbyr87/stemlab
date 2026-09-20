@@ -1299,3 +1299,50 @@ def test_einzelne_spur_richtet_die_kopfzeilen_aus(html):
     assert "grid-template-columns:1fr" in regel.group(1)
     assert re.search(r"\.mx\.nur-eine \.mx-bahn\{grid-column:1\}", html), \
         "Die Bahn muss in die erste Spalte, sonst bleibt sie rechts stehen"
+
+
+# --------------------------------------------------------------------------- #
+# Umbruchleiste: Marker statt benannter Abschnitte
+# --------------------------------------------------------------------------- #
+
+def test_leiste_zeigt_umbrueche_statt_abschnittsnamen(html):
+    """Die benannten Abschnitte kamen aus dem gemasterten Summenpegel und
+    waren nicht haltbar – ein "Drop" über 47 Takte, zwei gleiche Kennzahlen
+    mit verschiedenen Namen. Die Leiste zeigt jetzt, wo sich die Besetzung
+    ändert, und benennt nichts von sich aus."""
+    fn = re.search(r"zeichneKopfzeilen\(d\) \{.*?\n  \}", html, re.S)
+    assert fn, "Die Methode fehlt"
+    assert "a.umbrueche" in fn.group(0), \
+        "Die Leiste liest die gemessenen Umbrüche"
+    assert "ABSCHNITT_FARBE" not in fn.group(0), \
+        "Die Farben gehörten zu den erfundenen Namen"
+
+
+def test_umbruch_zeigt_die_besetzung(html):
+    """Was an einem Umbruch steht, ist messbar: welche Stems dort spielen."""
+    fn = re.search(r"zeichneKopfzeilen\(d\) \{.*?\n  \}", html, re.S)
+    assert re.search(r"\.stems", fn.group(0)), \
+        "Ohne die Besetzung sagt ein Marker nichts"
+
+
+def test_umbruch_laesst_sich_selbst_benennen(html):
+    """StemLab schlägt die Taktgrenzen vor, die Deutung bleibt beim Nutzer.
+    Genau daran ist die automatische Benennung gescheitert."""
+    fn = re.search(r"zeichneKopfzeilen\(d\) \{.*?\n  \}", html, re.S)
+    assert re.search(r"ondblclick[^\n]*benenneUmbruch", fn.group(0)), \
+        "Ein Umbruch muss sich in der Leiste beschriften lassen"
+    assert re.search(r"/api/marken", html), \
+        "Die eigene Beschriftung muss einen Speicherort haben"
+
+
+def test_beschriftung_wird_gespeichert(html):
+    """Die eigene Beschriftung muss den Neustart überleben – sonst tippt
+    man sie bei jedem Öffnen neu."""
+    fn = re.search(r"async benenneUmbruch\(kasten, takt\) \{.*?\n  \}", html, re.S)
+    assert fn, "Die Methode fehlt"
+    assert "/api/marken" in fn.group(0) and "POST" in fn.group(0), \
+        "Ohne Speichern ist die Beschriftung nach dem Neuladen weg"
+    assert "this.marken" in fn.group(0) and "this.d.folder" in fn.group(0), \
+        "Gespeichert werden muss der Stand dieses Ordners, nicht ein leerer Rumpf"
+    assert re.search(r"async ladeMarken\(\) \{.*?/api/marken", html, re.S), \
+        "Und sie muss beim Zeichnen wieder gelesen werden"

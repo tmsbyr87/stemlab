@@ -63,7 +63,7 @@ class Analysis:
     key_mode: str = ""              # "minor"
     energy: int = 0                 # 1–10, wie in Mixed In Key
     danceability: int = 0           # 1–10, abgeleitet aus Tempo, Energie, Raster
-    segments: list[dict] = field(default_factory=list)   # Abschnitte des Arrangements
+    umbrueche: list[dict] = field(default_factory=list)  # wo die Besetzung wechselt (aus den Stems)
     key_confidence: float = 0.0
     key_alt: str = ""
     beats: list[float] = field(default_factory=list)
@@ -409,151 +409,112 @@ def danceability(bpm: float, energy: int, bpm_confidence: float) -> int:
     return int(max(1, min(10, round(wert * 10))))
 
 
-def _abschnittsart(pegel: float, bass: float, laut: float, bassreich: float) -> str:
-    """Einen Abschnitt benennen, so wie ein Produzent ihn nennen würde.
+# Wie leise ein Stem sein darf und trotzdem als "spielt" gilt. Relativ zu
+# seinem eigenen Maximum, denn ein Vocal-Stem ist nie so laut wie die Drums.
+# An echten Tracks gemessen: Fallen die Drums in einem Breakdown aus, gehen
+# sie auf 2 % ihres Maximums zurück – 20 % trennt das sicher von einem
+# Stem, der nur zurückgenommen ist.
+_STEM_AN = 0.20
 
-    Die Schwellen sind relativ zum Track, nicht absolut. Ein leise
-    gemasterter Track hat trotzdem einen Drop – nur eben bei einem
-    niedrigeren Pegel. An 156 Abschnitten aus 20 Clubtracks gemessen
-    liegt der Pegel zwischen 0,07 und 1,00 des Maximums; eine feste
-    Schwelle wäre entweder nie oder immer erreicht worden.
+# Das Raster, in dem Tanzmusik gebaut ist. Feiner zu messen bringt nichts:
+# Takt für Takt gemessen flackert die Besetzung im Bereich einzelner
+# Takte hin und her (gemessen: Takt 51, 52, 53, 54, 55 abwechselnd),
+# weil ein ausklingender Ton den Schwellwert noch streift.
+_GRUPPE = 8
 
-    Die Benennung ist eine Deutung, keine Messung – deshalb liefert
-    segmente() die Kennzahlen mit, auf denen sie beruht.
+
+def umbrueche(ordner, downbeats: list[float]) -> list[dict]:
+    """Wo im Track sich die Besetzung ändert – gemessen, nicht gedeutet.
+
+    Diese Funktion benennt nichts. Der Vorgänger tat das und scheiterte:
+    Er las den Summenpegel eines gemasterten Tracks, und der schwankt über
+    einen ganzen Clubtrack um 12 % – ein Limiter drückt genau das weg, was
+    die Messung suchte. Zwei Abschnitte mit denselben Kennzahlen bekamen
+    verschiedene Namen, und ein "Drop" lief über 47 Takte.
+
+    Die Stems tragen dieselbe Information viel deutlicher: In einem echten
+    Breakdown fallen die Drums auf 2 % ihres Maximums. Deshalb wird je
+    Achtergruppe gemessen, welche Stems spielen; ein Umbruch ist eine
+    Stelle, an der sich diese Besetzung ändert.
+
+    Gibt eine Liste von Blöcken zurück: Takt, Länge in Takten und die
+    Namen der Stems, die dort klingen. Ohne Stems (reine Analyse) eine
+    leere Liste – erfundene Umbrüche wären schlimmer als gar keine.
     """
-    # Gemessen an denselben 156 Abschnitten: Der Pegel liegt im Median bei
-    # 0,90 des Maximums, der Bass bei 0,68. Der laute Bereich ist also der
-    # Normalfall, nicht die Ausnahme – wer ihn nicht unterteilt, nennt die
-    # Hälfte aller Abschnitte "Groove" und sagt damit nichts.
-    p = pegel / (laut or 1.0)
-    b = bass / (bassreich or 1.0)
-
-    # Leise: der Track nimmt sich zurück. Ob Breakdown oder Aufbau,
-    # entscheidet der Bass – ein Breakdown nimmt ihn weg.
-    if p < 0.60:
-        return "Breakdown" if b < 0.55 else "Aufbau"
-
-    # Laut, aber der Bass fehlt ganz: ein Break mitten im Stück.
-    if b < 0.45:
-        return "Break"
-
-    # Laut und der Bass ist noch nicht voll da: typische Spannung vor dem
-    # Drop – Filter offen, Kick noch draußen. Das ist ein Aufbau, kein Groove.
-    #
-    # Die Schwelle liegt auf dem gemessenen Median (0,68), nicht darüber:
-    # Bei 0,75 wanderten 35 % aller Abschnitte hierher und "Aufbau" wurde
-    # zum neuen Sammeltopf – derselbe Fehler wie vorher mit "Groove", nur
-    # unter anderem Namen. Bei 0,68 trägt kein Name mehr als 26 %.
-    if b < 0.68:
-        return "Aufbau"
-
-    # Voller Bass. Der lauteste Teil davon ist der Drop.
-    if p > 0.92:
-        return "Drop"
-    return "Groove"
-
-
-def _nach_stellung(abschnitte: list[dict]) -> None:
-    """Anfang und Ende nach ihrer Stellung benennen, nicht nach der Messung.
-
-    Pegel und Bass sagen nicht, wo im Track man ist. Der erste Abschnitt
-    ist der Einstieg, ganz gleich wie laut er gemessen wurde – bei
-    Clubtracks ist das Intro oft schon der volle Beat. An 20 echten Tracks
-    hieß der erste Abschnitt in 7 Fällen "Groove" und blieb ohne Intro.
-
-    Am Ende gilt das nur, wenn der Track abfällt: Wer auf voller
-    Lautstärke schließt, hat kein Outro, und ein Name, der immer
-    vergeben wird, sagt nichts.
-    """
-    if not abschnitte:
-        return
-    abschnitte[0]["art"] = "Intro"
-    if len(abschnitte) > 1:
-        laut = max(a["pegel"] for a in abschnitte) or 1.0
-        if abschnitte[-1]["pegel"] / laut < 0.85:
-            abschnitte[-1]["art"] = "Outro"
-
-
-def segmente(y: np.ndarray, downbeats: list[float], anzahl: int | None = None) -> list[dict]:
-    """Den Track in Abschnitte teilen – auf Taktgrenzen.
-
-    Gemessen wird je Takt: Klangfarbe (MFCC) und Pegel. Wo sich beides
-    deutlich ändert, liegt eine Grenze. Die Grenzen fallen auf Downbeats,
-    weil alles andere für die Produktion unbrauchbar wäre – man arbeitet
-    in Acht- und Sechzehnergruppen, nicht in Sekunden.
-
-    `anzahl` steuert die Feinheit. Ohne Angabe richtet sie sich nach der
-    Länge: Ein Sechsminüter hat mehr Abschnitte als ein Zweiminüter.
-    """
-    import librosa
+    import postprocess
 
     db = [float(d) for d in (downbeats or [])]
-    if len(db) < 8 or not y.size:
+    dateien = postprocess.stem_files(Path(ordner))
+
+    spuren: dict[str, np.ndarray] = {}
+    for pfad in dateien:
+        try:
+            y, _ = _load(pfad)
+        except Exception as exc:                 # eine unlesbare Spur darf
+            LOG.warning("Stem %s nicht lesbar: %s", pfad.name, exc)
+            continue                             # den Rest nicht verhindern
+        if y.size:
+            spuren[postprocess.stem_name(pfad)] = y
+    if not spuren:
         return []
 
-    if anzahl is None:
-        # Etwa ein Abschnitt je 16 Takte, aber zwischen 3 und 8.
-        anzahl = int(max(3, min(8, round(len(db) / 16))))
-    anzahl = max(2, min(anzahl, len(db) - 1))
-
-    mfcc = librosa.feature.mfcc(y=y, sr=SAMPLE_RATE, n_mfcc=13)
-    rms = librosa.feature.rms(y=y)[0]
-    zeiten = librosa.frames_to_time(np.arange(mfcc.shape[1]), sr=SAMPLE_RATE)
-
-    spalten, takt_index = [], []
-    for i in range(len(db) - 1):
-        maske = (zeiten >= db[i]) & (zeiten < db[i + 1])
-        if not maske.any():
-            continue
-        # Der Pegel bekommt Gewicht, sonst entscheidet die Klangfarbe allein –
-        # und ein Breakdown unterscheidet sich vor allem durch die Lautstärke.
-        spalten.append(np.concatenate([mfcc[:, maske].mean(axis=1), [rms[maske].mean() * 20]]))
-        takt_index.append(i)
-    if len(spalten) < anzahl + 1:
+    anzahl_takte = len(db) - 1
+    gruppen = anzahl_takte // _GRUPPE
+    if gruppen < 2:
         return []
 
-    X = np.array(spalten).T
-    grenzen = sorted(set(int(g) for g in librosa.segment.agglomerative(X, anzahl)))
-    if grenzen and grenzen[0] != 0:
-        grenzen.insert(0, 0)
-    grenzen.append(len(spalten))
+    # Je Achtergruppe der Effektivpegel jeder Spur.
+    pegel: dict[str, list[float]] = {n: [] for n in spuren}
+    for g in range(gruppen):
+        von, bis = db[g * _GRUPPE], db[min((g + 1) * _GRUPPE, anzahl_takte)]
+        for name, y in spuren.items():
+            stueck = y[int(von * SAMPLE_RATE):int(bis * SAMPLE_RATE)]
+            pegel[name].append(
+                float(np.sqrt(np.mean(stueck.astype("float64") ** 2))) if stueck.size else 0.0)
 
-    gesamt_max = float(np.abs(y).max()) or 1.0
-    abschnitte = []
-    for a, b in zip(grenzen, grenzen[1:]):
-        if b <= a:
+    # An oder aus – gemessen am eigenen Maximum der Spur.
+    schwelle = {n: (max(w) or 1.0) * _STEM_AN for n, w in pegel.items()}
+    reihenfolge = [postprocess.stem_name(p) for p in dateien if postprocess.stem_name(p) in spuren]
+    besetzung = [tuple(n for n in reihenfolge if pegel[n][g] > schwelle[n])
+                 for g in range(gruppen)]
+
+    bloecke: list[dict] = []
+    for g, wer in enumerate(besetzung):
+        if bloecke and wer == tuple(bloecke[-1]["stems"]):
+            bloecke[-1]["takte"] += _GRUPPE
             continue
-        start, ende = db[takt_index[a]], db[takt_index[min(b, len(takt_index) - 1)]]
-        stueck = y[int(start * SAMPLE_RATE):int(ende * SAMPLE_RATE)]
-        if stueck.size < SAMPLE_RATE // 2:
-            continue
-        pegel = float(np.sqrt(np.mean(stueck.astype("float64") ** 2))) / gesamt_max
-        spec = np.abs(librosa.stft(stueck[: SAMPLE_RATE * 30], n_fft=2048))
-        freqs = librosa.fft_frequencies(sr=SAMPLE_RATE, n_fft=2048)
-        summe = float(spec.sum()) or 1.0
-        bass = float(spec[freqs < 250].sum()) / summe
-        onset = librosa.onset.onset_strength(y=stueck[: SAMPLE_RATE * 30], sr=SAMPLE_RATE)
-        perkussiv = float(np.mean(onset)) if onset.size else 0.0
-        abschnitte.append({
-            "start": round(start, 2),
-            "ende": round(ende, 2),
-            "takte": b - a,
-            "takt_von": takt_index[a] + 1,
-            "pegel": round(min(1.0, pegel), 3),
-            "bass": round(bass, 3),
-            "perkussiv": round(perkussiv, 2),
-        })
+        bloecke.append({"takt": g * _GRUPPE + 1, "takte": _GRUPPE, "stems": list(wer)})
 
-    # Benannt wird erst, wenn alle Abschnitte gemessen sind: Die Schwellen
-    # beziehen sich auf den lautesten und bassreichsten Teil dieses Tracks.
-    if abschnitte:
-        laut = max(a["pegel"] for a in abschnitte) or 1.0
-        bassreich = max(a["bass"] for a in abschnitte) or 1.0
-        for a in abschnitte:
-            a["art"] = _abschnittsart(a["pegel"], a["bass"], laut, bassreich)
+    # Die Takte hinter der letzten vollen Achtergruppe gehören zum letzten
+    # Block – sonst fehlten sie in der Summe und die Leiste endete zu früh.
+    if bloecke:
+        bloecke[-1]["takte"] += anzahl_takte - gruppen * _GRUPPE
+    return bloecke
 
-        _nach_stellung(abschnitte)
-    return abschnitte
+
+def trage_umbrueche_nach(ordner) -> list[dict]:
+    """Die Umbrüche in eine schon geschriebene analysis.json ergänzen.
+
+    Sie brauchen die fertigen Stems, die es während analyze() noch nicht
+    gibt – deshalb ein eigener Schritt nach der Trennung. Eine reine
+    Analyse behält ihre Datei unverändert.
+    """
+    ordner = Path(ordner)
+    datei = ordner / "analysis.json"
+    if not datei.is_file():
+        return []
+    try:
+        daten = json.loads(datei.read_text())
+    except Exception as exc:
+        LOG.warning("analysis.json nicht lesbar: %s", exc)
+        return []
+
+    gefunden = umbrueche(ordner, daten.get("downbeats") or [])
+    if not gefunden:
+        return []
+    daten["umbrueche"] = gefunden
+    datei.write_text(json.dumps(daten, indent=2, ensure_ascii=False))
+    return gefunden
 
 
 # --------------------------------------------------------------------------- #
@@ -705,10 +666,6 @@ def analyze(path: Path, on_log: Callable[[str], None] | None = None) -> Analysis
         setattr(result, k, v)
     result.energy = _energy(y)
     result.danceability = danceability(result.bpm, result.energy, result.bpm_confidence)
-    try:
-        result.segments = segmente(y, result.downbeats)
-    except Exception as exc:          # Struktur ist eine Zugabe, kein Muss
-        LOG.warning("Struktur nicht bestimmbar: %s", exc)
     result.chords = _chords(chroma, hop, downbeats, beats, seconds)
     result.chord_sheet = _chord_sheet(result.chords, per_line=4)
     return result

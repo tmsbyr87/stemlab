@@ -674,6 +674,13 @@ def separate(
                 if source.exists():
                     postprocess.uebernimm_tags(source, result.files + [original])
                     say("Titel, Artist und Cover aus der Datei übernommen.")
+        # Erst jetzt liegen die Stems da – und nur aus ihnen ist ablesbar,
+        # wo sich die Besetzung ändert. Im gemasterten Summensignal steht
+        # das nicht drin.
+        umbrueche = _analysis.trage_umbrueche_nach(target)
+        if umbrueche and isinstance(result.analysis, dict):
+            result.analysis["umbrueche"] = umbrueche
+
         say("Berechne Wellenformen …")
         result.extras.append(postprocess.write_waveforms(target, result.files + [original]))
 

@@ -311,7 +311,7 @@ def folder_summary(folder: Path) -> dict | None:
         # Beat-Zeitpunkte in der Oberfläche. Die Abschnitte sind die
         # Ausnahme – ohne sie kann die Arrangement-Ansicht nichts
         # zeichnen, und "7" sagt nichts über den Aufbau.
-        durchreichen = {"segments"}
+        durchreichen = {"segments", "umbrueche"}
         analysis = {k: (v if k in durchreichen or not isinstance(v, list) else len(v))
                     for k, v in a.items()}
     except Exception:
@@ -729,6 +729,43 @@ async def post_notes(request: Request) -> JSONResponse:
         # Kein leeres Blatt hinterlassen.
         datei.unlink(missing_ok=True)
     return JSONResponse({"text": text if text.strip() else ""})
+
+
+@app.get("/api/marken")
+def get_marken(path: str) -> JSONResponse:
+    """Eigene Beschriftungen der Umbruchpunkte, nach Takt.
+
+    StemLab misst, wo sich die Besetzung ändert – wie ein Abschnitt heißt,
+    entscheidet der Nutzer. Der Versuch, das automatisch zu benennen, las
+    den gemasterten Summenpegel und lag daneben.
+
+    Getrennt von notes.txt: Das ist Freitext zum Song, diese hier hängen
+    an Takten. Im Ordner, damit sie beim Kopieren mitgehen.
+    """
+    datei = _allowed_result_path(path) / "marken.json"
+    marken = {}
+    if datei.is_file():
+        try:
+            gelesen = json.loads(datei.read_text(encoding="utf-8"))
+            if isinstance(gelesen, dict):
+                marken = {str(k): str(v) for k, v in gelesen.items()}
+        except Exception as exc:
+            LOG.warning("Marken nicht lesbar (%s): %s", datei, exc)
+    return JSONResponse({"marken": marken})
+
+
+@app.post("/api/marken")
+async def post_marken(request: Request) -> JSONResponse:
+    payload = await request.json()
+    datei = _allowed_result_path(str(payload.get("folder", ""))) / "marken.json"
+    roh = payload.get("marken")
+    # Leere Beschriftungen sind gelöschte Beschriftungen.
+    marken = {str(k): str(v).strip() for k, v in (roh or {}).items() if str(v).strip()}
+    if marken:
+        datei.write_text(json.dumps(marken, indent=2, ensure_ascii=False), encoding="utf-8")
+    else:
+        datei.unlink(missing_ok=True)
+    return JSONResponse({"marken": marken})
 
 
 @app.get("/api/profil")

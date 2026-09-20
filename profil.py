@@ -81,11 +81,18 @@ def _auf_achter(wert: float) -> int:
     return int(max(8, round(wert / 8) * 8))
 
 
-def _erster(segmente: list[dict], arten: tuple[str, ...]) -> int | None:
-    """Der Takt, an dem der erste Abschnitt einer dieser Arten beginnt."""
-    for seg in segmente:
-        if seg.get("art") in arten:
-            return seg.get("takt_von")
+# Der Bass ist das Signal, an dem in Tanzmusik "es geht los" hängt: Vor
+# dem ersten Drop läuft er nicht, danach trägt er den Track. Das ist
+# messbar – anders als die Abschnittsnamen, die einmal aus dem
+# gemasterten Summenpegel abgeleitet wurden und nicht trugen.
+_TRAEGT = "bass"
+
+
+def _erster_mit_bass(bloecke: list[dict]) -> int | None:
+    """Der Takt, an dem der Bass zum ersten Mal einsetzt."""
+    for block in bloecke:
+        if _TRAEGT in (block.get("stems") or []):
+            return block.get("takt")
     return None
 
 
@@ -96,21 +103,26 @@ def raster(analysen: list[dict]) -> dict:
     erster Drop bei Takt 65". Sekunden helfen beim Auflegen, Takte beim
     Bauen.
 
-    Ohne Strukturdaten bleiben die Felder leer, statt etwas zu erfinden:
-    Ältere Analysen kennen keine Abschnitte.
+    Intro und erster Drop werden aus der Besetzung abgelesen, nicht aus
+    Namen: Das Intro ist, was vor dem ersten Bass läuft. Ohne Stems gibt
+    es keine Umbrüche und damit kein Raster, statt eines erfundenen.
     """
     intros, drops, gesamt, teile = [], [], [], []
     for a in analysen:
-        segmente = a.get("segments") or []
-        if not segmente:
+        bloecke = a.get("umbrueche") or []
+        if not bloecke:
             continue
-        teile.append(len(segmente))
-        gesamt.append(sum(s.get("takte", 0) for s in segmente))
-        if segmente[0].get("art") in ("Intro", "Aufbau"):
-            intros.append(segmente[0].get("takte", 0))
-        drop = _erster(segmente, ("Drop",))
+        teile.append(len(bloecke))
+        gesamt.append(sum(b.get("takte", 0) for b in bloecke))
+        # Das Intro ist alles vor dem ersten Bass. Setzt er im ersten
+        # Block schon ein, gibt es keines – das als 0 zu zählen zöge den
+        # Median nach unten.
+        drop = _erster_mit_bass(bloecke)
         if drop:
             drops.append(drop)
+            # Setzt der Bass im ersten Takt ein, gibt es kein Intro. Die
+            # 0 fällt in _verteilung() heraus, statt den Median zu ziehen.
+            intros.append(drop - 1)
 
     ergebnis = {
         "intro_takte": _verteilung(intros),

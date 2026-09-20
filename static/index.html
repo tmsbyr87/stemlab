@@ -358,12 +358,19 @@
   .mx-takte i{position:absolute;top:4px;bottom:0;width:1px;background:var(--line-2)}
   .mx-takte span{position:absolute;top:0;font-size:9.5px;color:var(--muted);
                  transform:translateX(3px);font-variant-numeric:tabular-nums}
-  .mx-abschnitte{height:20px;margin-bottom:3px}
+  .mx-abschnitte{height:22px;margin-bottom:3px}
   .mx-abschnitte u{position:absolute;top:0;bottom:0;border-radius:4px;display:flex;
                    align-items:center;padding:0 6px;font-size:10px;text-decoration:none;
                    color:var(--text);overflow:hidden;white-space:nowrap;cursor:pointer;
                    border:1px solid var(--line)}
+  .mx-abschnitte u{background:var(--panel-2);gap:5px;font-size:10.5px;padding:0 5px}
   .mx-abschnitte u:hover{border-color:var(--accent)}
+  /* Die Besetzung als Farbpunkte – dieselben Farben wie die Spuren
+     darunter. So sieht man ohne Text, dass hier der Bass fehlt. */
+  .mx-stems{display:flex;gap:2px;flex:none}
+  .mx-stems i{width:6px;height:6px;border-radius:50%}
+  .mx-name{font-weight:600;overflow:hidden;text-overflow:ellipsis}
+  .mx-abschnitte u.benannt{background:var(--accent-soft)}
   /* Mit nur einer Spur faellt die Spur selbst auf eine Spalte zusammen
      (.tracks.nur-eine .track) – dann muessen die Kopfzeilen mit, sonst
      stehen Takte und Abschnitte 336px rechts neben der Wellenform. */
@@ -1902,26 +1909,39 @@ class Mixer {
   zeichneKopfzeilen(d) {
     const a = (d && d.analysis) || {};
     const takte = a.downbeats || 0;
-    const segmente = a.segments || [];
+    const umbrueche = a.umbrueche || [];
     const leer = () => { const x = el('div'); x.className = 'mx-spacer'; return x; };
     const platzhalter = (zeile) => { if (this.nurEineSpur) return; for (let i = 0; i < 5; i++) zeile.append(leer()); };
 
-    if (segmente.length && takte) {
+    // Die Umbrüche sind gemessen: Sie stehen dort, wo ein Stem ein- oder
+    // aussetzt. Wie der Abschnitt heißt, entscheidet der Nutzer – der
+    // Versuch, das automatisch zu benennen, las den gemasterten
+    // Summenpegel und lieferte einen "Drop" über 47 Takte.
+    if (umbrueche.length && takte) {
       const zeile = this.root.querySelector('.mx-abschnitte');
       zeile.hidden = false;
       zeile.innerHTML = '';
       platzhalter(zeile);
       const bahn = el('div', 'mx-bahn');
-      for (const seg of segmente) {
-        const kasten = el('u', null, `${seg.art} · ${seg.takte}`);
-        kasten.style.left = (seg.takt_von - 1) / takte * 100 + '%';
-        kasten.style.width = Math.max(seg.takte / takte * 100, 2) + '%';
-        kasten.style.background = ABSCHNITT_FARBE[seg.art] || 'var(--panel-3)';
-        kasten.title = `${seg.art}, Takt ${seg.takt_von}–${seg.takt_von + seg.takte - 1}`;
-        kasten.onclick = () => this.seek((seg.takt_von - 1) / takte * (this.duration || 0));
+      for (const u of umbrueche) {
+        const kasten = el('u');
+        kasten.style.left = (u.takt - 1) / takte * 100 + '%';
+        kasten.style.width = Math.max(u.takte / takte * 100, 1.5) + '%';
+        kasten.dataset.takt = u.takt;
+        const punkte = el('span', 'mx-stems');
+        for (const n of (u.stems || [])) {
+          const i = el('i'); i.style.background = COLOR[n] || '#8b93a7'; i.title = n; punkte.append(i);
+        }
+        const name = el('b', 'mx-name');
+        kasten.append(punkte, name);
+        kasten.title = `Takt ${u.takt}–${u.takt + u.takte - 1} · ${(u.stems || []).join(', ') || 'still'}`
+          + '\nDoppelklick zum Beschriften';
+        kasten.onclick = () => this.seek((u.takt - 1) / takte * (this.duration || 0));
+        kasten.ondblclick = (ev) => { ev.stopPropagation(); this.benenneUmbruch(kasten, u.takt); };
         bahn.append(kasten);
       }
       zeile.append(bahn);
+      this.ladeMarken();
     }
 
     if (takte > 8) {
@@ -1942,6 +1962,35 @@ class Mixer {
       }
       zeile.append(bahn);
     }
+  }
+
+  /* Die eigene Beschriftung eines Umbruchs. StemLab misst die Grenze,
+     der Name kommt vom Nutzer – automatisch benannt hieß ein 47-Takte-
+     Block "Drop" und zwei gleiche Stellen trugen verschiedene Namen. */
+  async ladeMarken() {
+    try {
+      const r = await fetch('/api/marken?path=' + encodeURIComponent(this.d.folder));
+      this.marken = (await r.json()).marken || {};
+    } catch (_) { this.marken = {}; }
+    this.zeigeMarken();
+  }
+  zeigeMarken() {
+    for (const kasten of this.root.querySelectorAll('.mx-abschnitte u')) {
+      const name = (this.marken || {})[kasten.dataset.takt] || '';
+      kasten.querySelector('.mx-name').textContent = name;
+      kasten.classList.toggle('benannt', !!name);
+    }
+  }
+  async benenneUmbruch(kasten, takt) {
+    const vorher = (this.marken || {})[takt] || '';
+    const name = prompt(`Takt ${takt} – wie heißt dieser Abschnitt?`, vorher);
+    if (name === null) return;
+    this.marken = Object.assign({}, this.marken, { [takt]: name });
+    this.zeigeMarken();
+    try {
+      await fetch('/api/marken', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder: this.d.folder, marken: this.marken }) });
+    } catch (_) { toast('Beschriftung nicht gespeichert'); }
   }
 
   draw(t) {
@@ -2202,18 +2251,6 @@ async function reiterText(ziel, d) {
   }
   block.append(box);
 }
-
-/* Farben für die Abschnittsarten. Laut und tragend warm, ruhig kühl –
-   so erkennt man den Aufbau an der Farbe, bevor man den Namen liest. */
-const ABSCHNITT_FARBE = {
-  'Intro':     'var(--panel-2)',
-  'Aufbau':    'var(--accent-soft)',
-  'Groove':    'var(--accent-soft)',
-  'Drop':      'var(--warn-soft)',
-  'Break':     'var(--panel-3)',
-  'Breakdown': 'var(--panel-3)',
-  'Outro':     'var(--panel-2)',
-};
 
 function reiterHinweis(ziel, text) {
   const block = el('div', 'info-block');
