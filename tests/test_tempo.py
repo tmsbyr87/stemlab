@@ -107,6 +107,44 @@ def test_snapping_verbiegt_echte_werte_nicht():
     assert analysis._snap_bpm(123.4, 0.9) == 123.4
 
 
+@pytest.mark.parametrize("roh, erwartet", [
+    (119.06, 119.0),
+    (128.06, 128.0),
+    (124.07, 124.0),
+    (123.92, 124.0),
+    (124.08, 124.0),
+])
+def test_snapping_faengt_knappe_abweichungen(roh, erwartet):
+    """Genau an der Grenze scheiterte das Snapping bisher.
+
+    `abs(119.06 - 119.0)` ergibt in Gleitkomma 0.060000000000002274 und ist
+    damit NICHT `<= 0.06`. Die Werte, für die das Snapping gebaut wurde,
+    fielen also durch – im Durchlauf vom 2026-09-20 standen deshalb 119,06
+    und 128,06 in der Bibliothek statt 119 und 128.
+    """
+    assert analysis._snap_bpm(roh, 0.9) == erwartet
+
+
+def test_snapping_hat_eine_obergrenze():
+    """Die Toleranz endet bei 0.08. Weiter zu gehen würde echte Tempi
+    verbiegen: 123,4 läge bei 0.10 exakt an der Grenze zu 123,5."""
+    assert analysis._snap_bpm(124.09, 0.9) == 124.09
+    assert analysis._snap_bpm(123.4, 0.9) == 123.4
+
+
+@pytest.mark.parametrize("roh", [123.4, 122.4, 128.3, 119.25, 124.8])
+def test_snapping_laesst_deutlich_krumme_tempi_stehen(roh):
+    """Vinyl mit Pitch, Live-Einspielungen und alte Platten laufen krumm.
+    Deren Tempo ist echt und darf nicht geglättet werden."""
+    assert analysis._snap_bpm(roh, 0.9) == roh
+
+
+def test_snapping_kennt_auch_halbe_werte():
+    """Manche Tracks laufen auf x,5 – das ist ebenso ein DAW-Tempo."""
+    assert analysis._snap_bpm(124.47, 0.9) == 124.5
+    assert analysis._snap_bpm(124.54, 0.9) == 124.5
+
+
 def test_downbeats_ergeben_dasselbe_tempo():
     """Über die Takte gerechnet muss dasselbe herauskommen wie über die Beats."""
     grid = beat_grid(124.0)

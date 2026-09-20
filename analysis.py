@@ -197,6 +197,21 @@ def _tempo_from_beats(beats: np.ndarray, subdivision: int = 1) -> tuple[float, f
     return round(bpm, 2), round(confidence, 2)
 
 
+# Wie weit ein geschätztes Tempo von einem glatten Wert abweichen darf, um
+# trotzdem als dieser gelesen zu werden.
+#
+# 0.08 statt der früheren 0.06: Die enge Grenze verfehlte genau die Fälle,
+# für die das Snapping gedacht war – `abs(119.06 - 119.0)` ergibt in
+# Gleitkomma 0.060000000000002274 und liegt damit knapp über 0.06.
+#
+# Nach oben begrenzt die Halbschritt-Prüfung den Wert: Bei 0.10 läge ein
+# echtes Live-Tempo von 123,4 exakt an der Grenze zu 123,5 und würde
+# verbogen. 0.08 fängt die beobachteten Abweichungen (höchstens 0.09 …
+# 122,09 bleibt damit bewusst außen vor, siehe unten) und lässt krumme
+# Tempi in Ruhe.
+_SNAP_TOLERANZ = 0.08
+
+
 def _snap_bpm(bpm: float, confidence: float) -> float:
     """Produzierte Tracks laufen auf einem DAW-Tempo. Liegt die Schätzung sehr
     dicht an einem glatten Wert, ist der glatte Wert fast immer der richtige."""
@@ -204,7 +219,7 @@ def _snap_bpm(bpm: float, confidence: float) -> float:
         return round(bpm, 2)
     for step in (1.0, 0.5):
         candidate = round(bpm / step) * step
-        if abs(bpm - candidate) <= 0.06:
+        if abs(bpm - candidate) <= _SNAP_TOLERANZ:
             return round(candidate, 2)
     return round(bpm, 2)
 
