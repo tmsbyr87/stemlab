@@ -82,7 +82,12 @@
   .seitenleiste button:hover{background:var(--panel-2);color:var(--text)}
   .seitenleiste button.on{background:var(--accent-soft);color:var(--accent-2);font-weight:600}
   .seitenleiste .zahl{margin-left:auto;font-size:11px;color:var(--muted)}
+  /* Rechts steht, was zum Song gehört – also beginnt es auf dessen Höhe.
+     Der Versatz wird gemessen statt geraten: Kopfzeile, Ablagefeld und
+     Werkzeugleiste sind verschieden hoch, je nach Fensterbreite und
+     Umbruch. */
   .infospalte{position:sticky;top:18px;display:flex;flex-direction:column;gap:12px;
+              margin-top:var(--ab-oben,0px);
               max-height:calc(100vh - 36px);overflow:auto}
   .info-kopf{font-weight:650;font-size:13px;line-height:1.35}
   .info-kopf small{display:block;color:var(--muted);font-weight:400;font-size:11.5px;
@@ -282,6 +287,8 @@
   .badges span{font-size:9.5px;border:1px solid var(--line);border-radius:4px;padding:0 4px;color:var(--muted);font-weight:500}
   .tbl-empty{padding:22px;text-align:center;color:var(--muted);font-size:12.5px}
 
+  #jobs-card{margin-bottom:14px}
+  #jobs-head{margin:0 0 10px}
   .job{border:1px solid var(--line);border-radius:13px;padding:14px 16px;margin-bottom:11px;background:var(--panel);box-shadow:var(--shadow);animation:pop .25s ease}
   .job.action{background:var(--panel-2)}
   .job.flash{box-shadow:0 0 0 3px var(--accent-ring),var(--shadow)}
@@ -582,8 +589,8 @@
 
   </div>
 
-  <div class="card" id="jobs-card" hidden>
-    <h3><span id="jobs-title">In Arbeit</span> <span class="tag run" id="jobs-count"></span><span class="grow"></span></h3>
+  <div id="jobs-card" hidden>
+    <h3 id="jobs-head" hidden><span id="jobs-title">In Arbeit</span> <span class="tag run" id="jobs-count"></span><span class="grow"></span></h3>
     <div id="jobs"></div>
   </div>
 
@@ -748,11 +755,14 @@ function updateQueue() {
   } else pill.hidden = true;
   $('jobs-card').hidden = state.jobs.size === 0;
   const busy = running.length || queued.length;
-  $('jobs-title').textContent = busy ? 'In Arbeit' : 'Geöffnet';
-  $('jobs-count').textContent = busy
-    ? `${running.length} läuft${queued.length ? ` · ${queued.length} wartet` : ''}`
-    : `${state.jobs.size} ${state.jobs.size === 1 ? 'Karte' : 'Karten'}`;
-  $('jobs-count').className = 'tag' + (busy ? ' run' : '');
+  // Die Überschrift zählt nur, solange etwas läuft. "Geöffnet · 1 Karte"
+  // sagt nichts, seit es immer genau eine ist – und die trägt ihren Namen
+  // ohnehin selbst.
+  $('jobs-head').hidden = !busy;
+  $('jobs-title').textContent = 'In Arbeit';
+  $('jobs-count').textContent =
+    `${running.length} läuft${queued.length ? ` · ${queued.length} wartet` : ''}`;
+  $('jobs-count').className = 'tag run';
 }
 
 /* ---------- Analysen ---------- */
@@ -1436,6 +1446,8 @@ function renderJob(d) {
     // Fertige Analysen stapeln sich sonst als Karten. Sie stehen ab jetzt in
     // der Liste unten; von dort öffnet ein Klick genau eine Karte.
     if (d.kind === 'analyze') raeumeAnalyseKarte(e, d);
+    // Die Karte steht jetzt – die rechte Spalte kann sich danach richten.
+    requestAnimationFrame(richteInfospalteAus);
   }
   updateQueue();
 }
@@ -1991,6 +2003,31 @@ function notizfeld(ziel, d) {
   feld.onblur = () => { clearTimeout(timer); api('/api/notes', { folder: ordner, text: feld.value }).catch(() => {}); };
 }
 
+/* Der Versatz der rechten Spalte: Sie soll dort beginnen, wo die Karte
+   beginnt. Gemessen wird nach dem Aufbau, weil die Höhe der Elemente
+   darüber von Fensterbreite und Umbruch abhängt. */
+function richteInfospalteAus() {
+  const shell = document.querySelector('.shell');
+  const spalte = $('infospalte');
+  if (!shell || !spalte) return;
+  // Im einspaltigen Layout steht die Spalte ohnehin untereinander.
+  if (getComputedStyle(shell).gridTemplateColumns.split(' ').length < 3) {
+    spalte.style.setProperty('--ab-oben', '0px');
+    return;
+  }
+  const karte = document.querySelector('.job');
+  if (!karte) { spalte.style.setProperty('--ab-oben', '0px'); return; }
+  // sticky verfälscht die Messung: Ist die Seite gescrollt, liefert
+  // getBoundingClientRect() die klebende Position, nicht die natürliche.
+  // Für den Moment der Messung also lösen.
+  const vorher = spalte.style.position;
+  spalte.style.position = 'static';
+  spalte.style.setProperty('--ab-oben', '0px');
+  const versatz = Math.round(karte.getBoundingClientRect().top - spalte.getBoundingClientRect().top);
+  spalte.style.position = vorher;
+  spalte.style.setProperty('--ab-oben', Math.max(0, versatz) + 'px');
+}
+
 function renderInfospalte() {
   const spalte = $('infospalte');
   const d = state.infoTrack;
@@ -2034,6 +2071,7 @@ function renderInfospalte() {
   else reiterExport(inhalt, d);
   spalte.append(inhalt);
   notizfeld(spalte, d);
+  requestAnimationFrame(richteInfospalteAus);
 }
 
 /* ---------- Seitenleiste ----------
@@ -2161,6 +2199,7 @@ $('theme-btn').onclick = () => {
 };
 
 themeSetzen(themeLesen());
+addEventListener('resize', richteInfospalteAus);
 renderSeitenleiste();
 renderInfospalte();
 ladePlaylists();

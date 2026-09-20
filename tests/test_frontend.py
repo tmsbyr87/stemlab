@@ -746,3 +746,49 @@ def test_werkzeugleiste_bricht_erst_um_wenn_es_noetig_ist(html):
     regel = re.search(r"\.picker\{([^}]*)\}", html)
     assert regel and "min-width" in regel.group(1), \
         "Der Wähler braucht eine Untergrenze, damit er schrumpfen darf"
+
+
+# --------------------------------------------------------------------------- #
+# Kein Kasten im Kasten
+# --------------------------------------------------------------------------- #
+
+def test_karten_stehen_nicht_in_einem_zweiten_kasten(html):
+    """Die Karte bringt Rahmen, Schatten und Polsterung selbst mit. Der
+    umgebende Kasten mit Überschrift „GEÖFFNET · 1 Karte" setzte dieselben
+    Attribute ein zweites Mal – zwei Rahmen um denselben Inhalt.
+
+    Seit nur noch eine Karte offen ist, zählt die Überschrift ohnehin
+    immer bis eins.
+    """
+    behaelter = re.search(r'<div[^>]*id="jobs-card"[^>]*>', html)
+    assert behaelter, "jobs-card nicht gefunden"
+    klassen = re.search(r'class="([^"]*)"', behaelter.group(0))
+    assert not klassen or "card" not in klassen.group(1).split(), \
+        "Der Behälter darf kein eigener Kasten mehr sein"
+
+    # Und die Zählung entfällt, solange nichts läuft.
+    assert re.search(r"\$\('jobs-head'\)\.hidden = !busy", html), \
+        "Die Überschrift gehört weg, wenn nichts rechnet"
+
+
+def test_versatz_wird_ohne_sticky_gemessen(html):
+    """position:sticky verfälscht die Messung: Ist die Seite gescrollt,
+    liefert getBoundingClientRect() die klebende Position statt der
+    natürlichen – der Versatz fiele dann zu klein aus. Für den Moment der
+    Messung muss sticky gelöst werden."""
+    fn = re.search(r"function richteInfospalteAus\(.*?\n\}", html, re.S)
+    assert fn, "Die Ausrichtung fehlt"
+    assert "position = 'static'" in fn.group(0), \
+        "Für die Messung muss sticky ausgesetzt werden"
+    assert re.search(r"spalte\.style\.position = vorher", fn.group(0)), \
+        "Und danach wiederhergestellt"
+
+
+def test_infospalte_beginnt_auf_hoehe_der_karte(html):
+    """Rechts steht, was zum Song gehört – dann soll es auch auf seiner
+    Höhe beginnen und nicht weiter oben schweben."""
+    assert re.search(r"\.shell\{[^}]*align-items:start", html, re.S), \
+        "Die Spalten richten sich oben aus"
+    assert re.search(r"\.infospalte\{[^}]*--ab-oben", html, re.S) or \
+           re.search(r"#infospalte[^{]*\{[^}]*margin-top", html, re.S), \
+           "Die Infospalte braucht einen Versatz auf Kartenhöhe"
