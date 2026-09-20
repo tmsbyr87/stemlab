@@ -636,3 +636,72 @@ def test_sammelanalyse_loescht_die_quelldateien_nicht(client, tmp_path, monkeypa
     server.run_job(job)
 
     assert datei.exists(), "Die Quelldatei des Nutzers wurde gelöscht"
+
+
+# --------------------------------------------------------------------------- #
+# Profil einer Playlist
+# --------------------------------------------------------------------------- #
+
+def _analyse_ordner(wurzel, name, **werte):
+    import json
+    ordner = wurzel / name
+    ordner.mkdir(parents=True, exist_ok=True)
+    daten = {"bpm": 124.0, "energy": 7, "danceability": 8, "camelot": "8A",
+             "key_mode": "minor", "seconds_analyzed": 380.0, "downbeats": 190}
+    daten.update(werte)
+    (ordner / "analysis.json").write_text(json.dumps(daten))
+    return ordner
+
+
+def test_profil_einer_playlist(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "output_root", lambda: tmp_path)
+    monkeypatch.setattr(server, "CONFIG_PATH", tmp_path / "config.json")
+    a = _analyse_ordner(tmp_path, "Song A", bpm=124)
+    b = _analyse_ordner(tmp_path, "Song B", bpm=126)
+    _analyse_ordner(tmp_path, "Song C", bpm=90)      # nicht in der Playlist
+    client.post("/api/playlists", json={"aktion": "anlegen", "name": "Set"})
+    for o in (a, b):
+        client.post("/api/playlists", json={"aktion": "hinzufuegen", "name": "Set", "folder": str(o)})
+
+    antwort = client.get("/api/profil?playlist=Set")
+
+    assert antwort.status_code == 200
+    p = antwort.json()["profil"]
+    assert p["anzahl"] == 2
+    assert p["tempo"]["median"] == 125
+
+
+def test_profil_ueber_alle_analysen(client, tmp_path, monkeypatch):
+    """Ohne Playlist: das Profil des ganzen Zielordners."""
+    monkeypatch.setattr(server, "output_root", lambda: tmp_path)
+    for i, bpm in enumerate((120, 124, 128)):
+        _analyse_ordner(tmp_path, f"Song {i}", bpm=bpm)
+
+    p = client.get("/api/profil").json()["profil"]
+
+    assert p["anzahl"] == 3
+    assert p["tempo"]["median"] == 124
+
+
+def test_profil_kennzeichnet_kleine_gruppen(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "output_root", lambda: tmp_path)
+    _analyse_ordner(tmp_path, "Einziger")
+
+    assert client.get("/api/profil").json()["profil"]["belastbar"] is False
+
+
+def test_profil_unbekannte_playlist(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "output_root", lambda: tmp_path)
+    monkeypatch.setattr(server, "CONFIG_PATH", tmp_path / "config.json")
+
+    assert client.get("/api/profil?playlist=Gibtsnicht").status_code == 404
+
+
+def test_profil_ueberspringt_kaputte_analysen(client, tmp_path, monkeypatch):
+    """Eine unlesbare Datei darf das Profil nicht verhindern."""
+    monkeypatch.setattr(server, "output_root", lambda: tmp_path)
+    _analyse_ordner(tmp_path, "Gut")
+    kaputt = tmp_path / "Kaputt"; kaputt.mkdir()
+    (kaputt / "analysis.json").write_text("{kein json")
+
+    assert client.get("/api/profil").json()["profil"]["anzahl"] == 1

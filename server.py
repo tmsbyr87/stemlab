@@ -34,6 +34,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 import engine  # noqa: E402
 import postprocess  # noqa: E402
+import profil  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S")
 LOG = logging.getLogger("stemlab")
@@ -722,6 +723,37 @@ async def post_notes(request: Request) -> JSONResponse:
         # Kein leeres Blatt hinterlassen.
         datei.unlink(missing_ok=True)
     return JSONResponse({"text": text if text.strip() else ""})
+
+
+@app.get("/api/profil")
+def get_profil(playlist: str = "") -> JSONResponse:
+    """Das Profil einer Playlist – oder des ganzen Zielordners.
+
+    Gelesen werden die analysis.json der beteiligten Ordner. Eine
+    unlesbare Datei übergeht das Profil, statt daran zu scheitern: Bei
+    fünfzig Tracks soll eine kaputte nicht alles verhindern.
+    """
+    wurzel = output_root()
+    if playlist:
+        listen = load_config().get("playlists") or {}
+        if playlist not in listen:
+            raise HTTPException(404, f"Keine Playlist namens {playlist!r}.")
+        ordner = [Path(p) for p in listen[playlist]]
+    else:
+        ordner = [p for p in wurzel.iterdir() if p.is_dir()] if wurzel.is_dir() else []
+
+    analysen = []
+    for o in ordner:
+        datei = o / "analysis.json"
+        if not datei.is_file():
+            continue
+        try:
+            analysen.append(json.loads(datei.read_text()))
+        except Exception as exc:
+            LOG.warning("Analyse nicht lesbar (%s): %s", datei, exc)
+
+    return JSONResponse({"profil": profil.erstelle(analysen),
+                         "playlist": playlist or None})
 
 
 @app.get("/api/playlists")
