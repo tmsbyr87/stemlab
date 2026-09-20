@@ -468,3 +468,105 @@ def test_notizen_werden_verzoegert_gesichert(html):
         "Es braucht eine Verzögerung beim Tippen"
     assert re.search(r"feld\.onblur", html), \
         "Beim Verlassen muss sofort gesichert werden"
+
+
+# --------------------------------------------------------------------------- #
+# Icons in der Kopfzeile
+# --------------------------------------------------------------------------- #
+
+def test_kopfzeile_nutzt_icons_statt_wortknoepfe(html):
+    """Zwei Wortknöpfe nebeneinander sind viel Text für wenig Funktion."""
+    for knopf_id in ("theme-btn", "quit"):
+        knopf = re.search(rf'<button[^>]*id="{knopf_id}"[^>]*>(.*?)</button>', html, re.S)
+        assert knopf, f"{knopf_id} nicht gefunden"
+        assert "<svg" in knopf.group(1), f"{knopf_id} braucht ein Icon"
+        assert not re.sub(r"<svg.*?</svg>", "", knopf.group(1), flags=re.S).strip(), \
+            f"{knopf_id} soll nur das Icon zeigen, keinen Text daneben"
+
+
+def test_icons_bleiben_benannt(html):
+    """Ein Knopf ohne Beschriftung braucht einen Namen für Screenreader –
+    und einen Tooltip für alle anderen. Besonders bei „Beenden“: Das
+    stoppt den Server, das darf niemand aus Versehen treffen."""
+    for knopf_id in ("theme-btn", "quit"):
+        knopf = re.search(rf'<button[^>]*id="{knopf_id}"[^>]*>', html)
+        assert knopf, f"{knopf_id} nicht gefunden"
+        assert "aria-label=" in knopf.group(0), f"{knopf_id} braucht ein aria-label"
+        assert "title=" in knopf.group(0), f"{knopf_id} braucht einen Tooltip"
+
+
+def test_theme_icon_wechselt_mit_dem_zustand(html):
+    """Sonne, Mond oder Halbmond – man muss sehen, was gerade gilt, ohne
+    den Tooltip zu öffnen."""
+    liste = re.search(r"const THEMES = \[(.*?)\];", html, re.S)
+    assert liste, "Die Zustandsliste fehlt"
+    icons = re.findall(r"icon:\s*'<svg", liste.group(1))
+    assert len(icons) == 3, "Jeder der drei Zustände braucht ein eigenes Icon"
+    # Und der Name muss weiterhin im aria-label landen.
+    assert re.search(r"btn\.setAttribute\('aria-label'", html)
+
+
+def test_icons_erben_die_textfarbe(html):
+    """currentColor statt fester Farbe – sonst bleibt das Icon im dunklen
+    Erscheinungsbild dunkel."""
+    liste = re.search(r"const THEMES = \[(.*?)\];", html, re.S)
+    for svg in re.findall(r"icon:\s*'(<svg.*?</svg>)'", liste.group(1), re.S):
+        assert "currentColor" in svg, f"Icon ohne currentColor: {svg[:60]}"
+
+
+def test_kopfzeile_bricht_um_statt_zu_quetschen(html):
+    """Bei schmaler Arbeitsfläche brauchen Titel und Statusanzeigen mehr
+    Platz als vorhanden. Ohne Umbruch wird der Titel zur Textsäule."""
+    top = re.search(r"\.top\{([^}]*)\}", html)
+    assert top and "flex-wrap:wrap" in top.group(1), \
+        "Die Kopfzeile muss umbrechen dürfen"
+
+
+def test_icons_werden_nicht_gequetscht(html):
+    """Die Regel für Finger-Bedienung gibt .quiet zusätzliche Innenabstände.
+    Ohne Gegenmaßnahme schrumpft das Icon darin auf wenige Pixel – genau
+    das passierte beim ersten Versuch (16 px breit, dargestellt als 4 px)."""
+    assert re.search(r"\.ikon svg\{[^}]*flex:none", html), \
+        "Das Icon darf im Flexkasten nicht gestaucht werden"
+    # Im Touch-Block muss .ikon seine eigene Größe zurückholen, sonst
+    # ziehen die dortigen Innenabstände den Knopf in die Breite.
+    block = re.search(r"@media \(pointer: coarse\)\{.*?\n  \}", html, re.S)
+    assert block, "Der Touch-Block fehlt"
+    assert re.search(r"\.ikon\{[^}]*padding:0", block.group(0)), \
+        "Icon-Knöpfe brauchen auch bei Finger-Bedienung ihre eigene Größe"
+
+
+# --------------------------------------------------------------------------- #
+# Einheitliche Höhen
+# --------------------------------------------------------------------------- #
+
+def test_bedienelemente_teilen_sich_eine_hoehe(html):
+    """In der Werkzeugleiste standen fünf verschiedene Höhen nebeneinander:
+    Modell-Wähler 47, Modus-Gruppe 46, Format-Gruppe 37, Icons 32, die
+    übrigen Knöpfe 31. Das wirkt unruhig, auch wenn es niemand ausmisst.
+
+    Eine Variable statt verstreuter Werte: Wer eine Höhe ändert, ändert alle.
+    """
+    assert re.search(r"--h-ctl:\s*\d+px", html), \
+        "Es braucht eine gemeinsame Höhe als Variable"
+
+    # Eine Sammelregel gibt allen Elementen der Werkzeugleiste dieselbe
+    # Höhe. Geprüft wird ihr Inhalt, nicht einzelne Regeln – sonst trifft
+    # der Ausdruck die Sammelregel selbst und besteht immer.
+    sammel = re.search(r"([^\n]*\.bar[^\n]*)\{height:var\(--h-ctl\)\}", html)
+    assert sammel, "Die gemeinsame Höhe wird nirgends zugewiesen"
+    for teil in (".bar button", ".bar .seg", ".bar .pick-btn"):
+        assert teil in sammel.group(1), f"{teil} fehlt in der gemeinsamen Höhe"
+
+    # Die Icon-Knöpfe sind quadratisch und nutzen dieselbe Größe.
+    ikon = re.search(r"\.ikon\{([^}]*)\}", html, re.S)
+    assert ikon and ikon.group(1).count("var(--h-ctl)") == 2, \
+        "Icon-Knöpfe müssen quadratisch auf der gemeinsamen Höhe sitzen"
+
+
+def test_gruppen_umschliessen_ihre_knoepfe_ohne_zu_wachsen(html):
+    """Eine Segment-Gruppe darf nicht höher werden als ein einzelner Knopf
+    daneben – sonst steht sie über die Zeile hinaus."""
+    seg = re.search(r"\.seg\{([^}]*)\}", html)
+    assert seg and "box-sizing:border-box" in seg.group(1), \
+        "Die Gruppe muss ihre Innenabstände einrechnen"
