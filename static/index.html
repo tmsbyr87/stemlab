@@ -253,7 +253,10 @@
   .model .t{font-weight:700;font-size:13.5px;display:flex;gap:7px;align-items:center;flex-wrap:wrap}
   .model .s{color:var(--text-2);font-size:12px;line-height:1.45}
 
+  /* Das Rad ist ein Werkzeug, kein Dauergast: Ist es eingeklappt, bekommt
+     die Liste die ganze Breite. */
   .analyse{display:grid;grid-template-columns:268px 1fr;gap:18px;align-items:start}
+  .analyse:has(#wheel-box[hidden]){grid-template-columns:1fr}
   /* Ohne min-width:0 wächst ein Grid-Kind auf die Mindestbreite seines Inhalts
      (hier die Tabelle) – mobile Browser zoomen dann die ganze Seite heraus. */
   .analyse > *{min-width:0}
@@ -596,9 +599,10 @@
 
   <div class="card" id="bereich-analysen">
     <h3>Analysen <span class="tag" id="ana-count">0</span><span class="grow"></span>
+      <button class="quiet sm" id="wheel-toggle" title="Nach Tonart filtern (Camelot-Rad)">Tonart</button>
       <button class="quiet sm" id="ana-reload" title="Zielordner neu einlesen">aktualisieren</button></h3>
     <div class="analyse">
-      <div class="wheel-box">
+      <div class="wheel-box" id="wheel-box" hidden>
         <svg class="wheel" id="wheel" viewBox="0 0 250 250" role="group" aria-label="Camelot-Rad"></svg>
         <div class="wheel-legend">
           <span id="wheel-hint">Segment klicken zum Filtern</span>
@@ -822,6 +826,7 @@ function renderWheel() {
     svg.appendChild(sub);
   }
   $('wheel-clear').hidden = !state.filter.cam;
+  zeigeRadZustand();
   $('wheel-compat').classList.toggle('on', state.filter.compat);
   $('wheel-hint').textContent = state.filter.cam
     ? (state.filter.compat ? camCompatible(state.filter.cam).join(', ') : `nur ${state.filter.cam}`)
@@ -906,7 +911,28 @@ $('ana-filter-neu').onclick = () => {
   renderTable();
 };
 $('wheel-compat').onclick = () => { state.filter.compat = !state.filter.compat; renderWheel(); renderTable(); };
-$('wheel-clear').onclick = () => { state.filter.cam = null; renderWheel(); renderTable(); };
+$('wheel-clear').onclick = () => { state.filter.cam = null; renderWheel(); renderTable(); zeigeRadZustand(); };
+
+/* Das Rad nimmt aufgeklappt eine halbe Bildschirmhöhe. Wer eine Liste
+   durchsucht, braucht die Liste – das Werkzeug daneben nur dann, wenn er
+   nach Tonart filtern will. Eingeklappt bleibt der aktive Filter am Knopf
+   sichtbar: Sonst sucht man in einer gefilterten Liste und wundert sich,
+   warum Tracks fehlen. */
+function zeigeRadZustand() {
+  const knopf = $('wheel-toggle');
+  const aktiv = !!state.filter.cam;
+  knopf.classList.toggle('on', aktiv);
+  knopf.textContent = aktiv ? `Tonart ${state.filter.cam}` : 'Tonart';
+  knopf.title = aktiv
+    ? `Gefiltert auf ${state.filter.cam} – klicken zum Ändern`
+    : 'Nach Tonart filtern (Camelot-Rad)';
+}
+
+$('wheel-toggle').onclick = () => {
+  const box = $('wheel-box');
+  box.hidden = !box.hidden;
+  if (!box.hidden) renderWheel();      // erst beim Aufklappen zeichnen
+};
 
 async function openAnalysis(a) {
   const known = state.jobs.get(a.id);

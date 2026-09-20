@@ -899,3 +899,69 @@ def test_textknopf_bietet_transkription_an_wenn_nichts_da_ist(html):
     assert "language" in fn.group(0), "Die Sprachwahl gehört dazu"
     assert re.search(r"kind: 'lyrics'", fn.group(0)), \
         "Der Knopf muss die Transkription auch starten"
+
+
+# --------------------------------------------------------------------------- #
+# Camelot-Rad: aufklappbar
+# --------------------------------------------------------------------------- #
+
+def test_rad_ist_standardmaessig_eingeklappt(html):
+    """Das Rad nimmt eine halbe Bildschirmhöhe, wird aber nur zum Filtern
+    gebraucht. Wer eine Liste durchsucht, braucht die Liste – nicht das
+    Werkzeug daneben."""
+    box = re.search(r'<div class="wheel-box"[^>]*id="wheel-box"[^>]*>', html) \
+        or re.search(r'<div[^>]*id="wheel-box"[^>]*>', html)
+    assert box, "Der Radbereich braucht eine ID zum Ein- und Ausklappen"
+    assert "hidden" in box.group(0), "Eingeklappt ist der Ausgangszustand"
+
+
+def test_liste_bekommt_den_platz_des_eingeklappten_rades(html):
+    """Sonst bliebe die Spalte leer stehen und die Liste weiterhin schmal –
+    der Gewinn wäre dahin."""
+    assert re.search(r"\.analyse:has\(#wheel-box\[hidden\]\)\{grid-template-columns:1fr\}", html), \
+        "Ohne Rad gehört die ganze Breite der Liste"
+
+
+def test_knopf_nennt_die_gewaehlte_tonart(html):
+    """„Tonart 6A" sagt mehr als ein hervorgehobenes „Tonart": Man sieht,
+    wonach gefiltert wird, ohne aufzuklappen."""
+    fn = re.search(r"function zeigeRadZustand\(\).*?\n\}", html, re.S)
+    assert fn and re.search(r"Tonart \$\{state\.filter\.cam\}", fn.group(0)), \
+        "Der Knopf muss die gewählte Tonart nennen"
+
+
+def test_rad_wird_erst_beim_aufklappen_gezeichnet(html):
+    """97 SVG-Elemente aufzubauen, die niemand sieht, ist verschenkte
+    Arbeit bei jedem Seitenaufbau."""
+    fn = re.search(r"\$\('wheel-toggle'\)\.onclick = \{?.*?\n\};", html, re.S)
+    assert fn and "renderWheel()" in fn.group(0), \
+        "Das Rad soll erst beim Aufklappen gezeichnet werden"
+
+
+def test_rad_laesst_sich_aufklappen(html):
+    """Ein Knopf, der es zeigt und wieder verbirgt."""
+    assert re.search(r'id="wheel-toggle"', html), "Der Knopf fehlt"
+    assert re.search(r"\$\('wheel-toggle'\)\.onclick", html)
+
+
+def test_aktiver_filter_ist_auch_eingeklappt_erkennbar(html):
+    """Sonst sucht man in einer gefilterten Liste und wundert sich, warum
+    Tracks fehlen. Der Knopf muss zeigen, dass ein Filter greift."""
+    fn = re.search(r"function zeigeRadZustand\(\).*?\n\}", html, re.S)
+    assert fn, "Es fehlt die Anzeige des Filterzustands"
+    assert "classList.toggle('on'" in fn.group(0), \
+        "Der Knopf muss einen aktiven Filter hervorheben"
+    assert "state.filter.cam" in fn.group(0), \
+        "Und zwar anhand des tatsächlichen Filters"
+    # Sie muss nach jeder Änderung laufen.
+    assert html.count("zeigeRadZustand()") >= 2, \
+        "Der Zustand muss nach Filteränderungen nachgezogen werden"
+
+
+def test_rad_klappt_bei_auswahl_nicht_zu(html):
+    """Wer eine Tonart wählt, will oft gleich die nächste probieren –
+    zuklappen nach jedem Klick wäre lästig."""
+    fn = re.search(r"\$\('wheel-toggle'\)\.onclick = .*?;", html, re.S)
+    assert fn, "Der Umschalter fehlt"
+    # Die Segment-Klicks dürfen den Bereich nicht verbergen.
+    assert not re.search(r"seg\.onclick[^}]*wheel-box'\)\.hidden = true", html, re.S)
