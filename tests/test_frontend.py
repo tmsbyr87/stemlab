@@ -177,3 +177,50 @@ def test_knoepfe_ohne_stems_werden_ausgeblendet(html):
     """Loops oder Mix ohne Stems führen ins Leere."""
     assert "brauchtStems" in html
     assert "'Jetzt trennen'" in html
+
+
+# --------------------------------------------------------------------------- #
+# Eine Auswahl statt eines Stapels
+# --------------------------------------------------------------------------- #
+#
+# Wer sechs Dateien zur Analyse gibt, bekam sechs Karten untereinander – und
+# nur die oberste hatte einen Player. Die Analysen gehören in die Liste, aus
+# der man eine auswählt; die geöffnete Karte trägt dann Player und Optionen.
+
+def test_fertige_analyse_bleibt_nicht_als_karte_stehen(html):
+    """Nach dem Analysieren wandert der Track in die Liste, statt die
+    Oberfläche mit einer weiteren Karte zu verlängern."""
+    assert re.search(r"function raeumeAnalyseKarte", html), "Funktion fehlt"
+    # Sie muss auch gerufen werden – eine tote Funktion räumt nichts.
+    assert re.search(r"if \(d\.kind === 'analyze'\) raeumeAnalyseKarte", html), \
+        "raeumeAnalyseKarte muss für fertige Analysen aufgerufen werden"
+
+
+def test_analyse_karte_bekommt_denselben_aufbau_wie_die_bibliothek(html):
+    """Eine frische Analyse und dieselbe aus der Liste geklickt dürfen sich
+    nicht unterscheiden. Bisher landete die frische in buildActionResult
+    (ohne Player), die geklickte in buildResult (mit Player)."""
+    treffer = re.search(r"d\.kind === 'separate' \|\| d\.kind === 'library'([^\n]*)", html)
+    assert treffer, "Verzweigung zwischen den beiden Aufbauten nicht gefunden"
+    assert "analyze" in treffer.group(0), \
+        "Auch 'analyze' muss den vollen Aufbau mit Player bekommen"
+
+
+def test_liste_kennt_einen_filter_fuer_diese_sitzung(html):
+    """„Gerade analysiert" beantwortet die häufigste Frage nach einem Lauf:
+    Was habe ich eben hinzugefügt?"""
+    assert re.search(r'id="ana-filter-neu"', html), "Der Knopf fehlt"
+    assert re.search(r"state\.nurDieseSitzung = !state\.nurDieseSitzung", html), \
+        "Der Knopf muss den Filter umschalten"
+    # Und der Filter muss in der Auswahl der Zeilen ankommen.
+    assert re.search(r"!state\.nurDieseSitzung \|\| state\.neueDieseSitzung\.has", html), \
+        "visibleAnalyses muss den Filter auswerten"
+
+
+def test_nur_eine_karte_ist_gleichzeitig_offen(html):
+    """Zwei offene Player nebeneinander stiften Verwirrung – und spielen
+    womöglich gleichzeitig."""
+    assert re.search(r"function schliesseAndereKarten", html), "Funktion fehlt"
+    # Entscheidend ist der Aufruf beim Öffnen aus der Liste.
+    assert re.search(r"schliesseAndereKarten\(karte\)", html), \
+        "Beim Öffnen einer Karte müssen die anderen weichen"

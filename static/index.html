@@ -476,6 +476,8 @@
       <div>
         <div class="search">
           <input type="text" id="ana-search" placeholder="Titel suchen …" spellcheck="false" autocomplete="off">
+          <button class="quiet sm" id="ana-filter-neu" hidden
+                  title="Nur die Tracks, die in dieser Sitzung dazugekommen sind">gerade analysiert</button>
           <button class="quiet sm" id="ana-open" title="Zielordner im Finder öffnen">Ordner</button>
         </div>
         <div class="tablewrap">
@@ -519,7 +521,11 @@
 const $ = (id) => document.getElementById(id);
 const state = window.state = { models: [], selected: null, format: 'wav', jobs: new Map(), mixers: new Map(), quitting: false,
   refineSteps: {}, players: new Map(), menuOpen: false, analyses: [], shown: 120, pickPreview: null,
-  sort: { k: 'created', dir: -1 }, filter: { cam: null, compat: false, q: '' } };
+  sort: { k: 'created', dir: -1 }, filter: { cam: null, compat: false, q: '' },
+  // Ordner, die in dieser Sitzung analysiert oder getrennt wurden. Nach einem
+  // Lauf mit mehreren Dateien ist "was habe ich eben hinzugefügt?" die
+  // häufigste Frage – dafür der Filter über der Liste.
+  neueDieseSitzung: new Set(), nurDieseSitzung: false };
 const COARSE = window.matchMedia('(pointer: coarse)').matches;   // Finger statt Maus?
 const QUALITY = { roformer: 5, ensemble_vocal: 5, ensemble_inst: 5, demucs4ft: 4, mdx_inst: 4, demucs4: 3, demucs6: 3 };
 const SPEED   = { roformer: 2, ensemble_vocal: 1, ensemble_inst: 1, demucs4ft: 1, mdx_inst: 4, demucs4: 4, demucs6: 3 };
@@ -666,7 +672,10 @@ function renderWheel() {
 function visibleAnalyses() {
   const q = state.filter.q.toLowerCase();
   const allowed = state.filter.cam ? (state.filter.compat ? camCompatible(state.filter.cam) : [state.filter.cam]) : null;
-  const rows = state.analyses.filter(a => (!q || a.name.toLowerCase().includes(q)) && (!allowed || allowed.includes(a.camelot)));
+  const rows = state.analyses.filter(a =>
+    (!q || a.name.toLowerCase().includes(q))
+    && (!allowed || allowed.includes(a.camelot))
+    && (!state.nurDieseSitzung || state.neueDieseSitzung.has(a.folder)));
   const k = state.sort.k, dir = state.sort.dir;
   rows.sort((x, y) => {
     let a = x[k], b = y[k];
@@ -685,6 +694,11 @@ function renderTable(keepShown) {
   const frag = document.createDocumentFragment();
   body.innerHTML = '';
   $('ana-empty').hidden = rows.length > 0;
+  // Der Filter taucht erst auf, wenn es etwas zu filtern gibt.
+  const neuKnopf = $('ana-filter-neu');
+  neuKnopf.hidden = state.neueDieseSitzung.size === 0;
+  neuKnopf.textContent = `gerade analysiert (${state.neueDieseSitzung.size})`;
+  if (neuKnopf.hidden && state.nurDieseSitzung) { state.nurDieseSitzung = false; neuKnopf.classList.remove('on'); }
   $('ana-empty').textContent = state.analyses.length ? 'Kein Treffer für diesen Filter.' : 'Noch keine Analysen. Zieh einen Song in das Feld oben.';
   for (const a of slice) {
     const tr = el('tr'); tr.dataset.folder = a.folder;
@@ -725,6 +739,11 @@ $('ana-search').oninput = (e) => {
 };
 $('ana-reload').onclick = () => loadAnalyses();
 $('ana-open').onclick = () => api('/api/reveal', { path: (SET.meta && SET.meta.output_dir) || '' }).catch(err => toast(err.message, true));
+$('ana-filter-neu').onclick = () => {
+  state.nurDieseSitzung = !state.nurDieseSitzung;
+  $('ana-filter-neu').classList.toggle('on', state.nurDieseSitzung);
+  renderTable();
+};
 $('wheel-compat').onclick = () => { state.filter.compat = !state.filter.compat; renderWheel(); renderTable(); };
 $('wheel-clear').onclick = () => { state.filter.cam = null; renderWheel(); renderTable(); };
 
@@ -739,10 +758,55 @@ async function openAnalysis(a) {
     if (!(d.files || []).length && !(d.extras || []).some(x => base(x) === 'original.wav')) {
       toast('Ordner enthält weder Stems noch eine Aufnahme.', true); return;
     }
-    renderJob(d); renderTable();
-    flash(state.jobs.get(d.id));
+    renderJob(d);
+    const karte = state.jobs.get(d.id);
+    if (karte) { karte.dataset.gewaehlt = '1'; schliesseAndereKarten(karte); }
+    renderTable();
+    flash(karte);
   } catch (err) { toast('Konnte die Analyse nicht öffnen.', true); }
 }
+/* Nach einer fertigen Analyse muss die Karte nicht stehen bleiben: Der Track
+   steht jetzt in der Liste, und dort ist er auffindbar, sortierbar und
+   filterbar. Ein kurzer Moment bleibt sie sichtbar, damit man sieht, dass
+   etwas passiert ist – dann räumt sie sich weg. */
+function raeumeAnalyseKarte(e, d) {
+  if (e.dataset.geraeumt) return;
+  e.dataset.geraeumt = '1';
+  setTimeout(() => {
+    // Wer die Karte inzwischen ausgewählt hat, behält sie.
+    if (e.dataset.gewaehlt) return;
+    const mixer = state.mixers.get(d.id);
+    if (mixer && mixer.playing) return;          // spielt gerade – stehen lassen
+    if (mixer) { try { mixer.pause(); } catch (_) {} state.mixers.delete(d.id); }
+    state.jobs.delete(d.id);
+    e.remove();
+    updateQueue();
+    markiereInDerListe(d.folder);
+  }, 1500);
+}
+
+/* Der Track, der eben fertig wurde, soll in der Liste wiederzufinden sein. */
+function markiereInDerListe(folder) {
+  state.neueDieseSitzung.add(folder);
+  renderTable();
+}
+
+/* Zwei offene Karten mit Player nebeneinander stiften Verwirrung und spielen
+   womöglich gleichzeitig. Es bleibt bei einer. */
+function schliesseAndereKarten(behalten) {
+  for (const [id, card] of state.jobs) {
+    if (card === behalten) continue;
+    if (card.dataset.gewaehlt !== '1') continue;
+    const mixer = state.mixers.get(id);
+    if (mixer) { try { mixer.pause(); } catch (_) {} }
+    delete card.dataset.gewaehlt;
+    card.remove();
+    state.jobs.delete(id);
+    state.mixers.delete(id);
+  }
+  updateQueue();
+}
+
 function flash(card) {
   if (!card) return;
   card.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1188,8 +1252,17 @@ function renderJob(d) {
   const hatInhalt = d.files.length || (d.extras || []).some(x => base(x) === 'original.wav');
   if (d.status === 'done' && hatInhalt && !e.dataset.filled) {
     e.dataset.filled = '1';
-    if (d.kind === 'separate' || d.kind === 'library') buildResult(e, d); else buildActionResult(e, d);
+    // 'analyze' gehört hierher: Eine reine Analyse hat zwar keine Stems, aber
+    // eine Aufnahme – und damit Player, Wellenform, Akkorde und den Knopf zum
+    // Nachziehen. Vorher landete sie in buildActionResult und blieb stumm.
+    if (d.kind === 'separate' || d.kind === 'library' || d.kind === 'analyze') buildResult(e, d);
+    else buildActionResult(e, d);
     if (d.kind !== 'library') setTimeout(loadAnalyses, 500);
+    // Auch getrennte Tracks gehören zu dem, was gerade dazukam.
+    if (d.kind === 'separate' && d.folder) state.neueDieseSitzung.add(d.folder);
+    // Fertige Analysen stapeln sich sonst als Karten. Sie stehen ab jetzt in
+    // der Liste unten; von dort öffnet ein Klick genau eine Karte.
+    if (d.kind === 'analyze') raeumeAnalyseKarte(e, d);
   }
   updateQueue();
 }
