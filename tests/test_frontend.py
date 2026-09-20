@@ -827,3 +827,41 @@ def test_einstellungen_und_hell_sehen_verschieden_aus(html):
     # plus Strichliste.
     assert not ("<circle" in zahnrad and "M8 1." in zahnrad), \
         "Das Zahnrad ist noch als Kreis mit Strahlen gebaut"
+
+
+# --------------------------------------------------------------------------- #
+# Lyrics: Fortschritt und Anzeige
+# --------------------------------------------------------------------------- #
+
+def test_lyrics_zeigt_geschaetzten_fortschritt(html):
+    """Whisper läuft in einem Zug durch und meldet unterwegs nichts. Ein
+    Balken, der minutenlang bei null steht, sieht aus wie ein Absturz.
+
+    Die Dauer ist abschätzbar – auf der Apple-GPU etwa ein Zehntel der
+    Spielzeit. Ein Balken, der sich daran orientiert und bei 95 % wartet,
+    sagt mehr als gar keiner.
+    """
+    assert re.search(r"function schaetzeFortschritt\(", html), \
+        "Es braucht eine Schätzung für Läufe ohne echte Rückmeldung"
+    assert re.search(r"0\.95", html), \
+        "Die Schätzung darf nicht bei 100 % ankommen, bevor sie fertig ist"
+
+
+def test_lyrics_stehen_in_der_rechten_spalte(html):
+    """Der Text gehört zum Track – dann soll er dort stehen, wo alles
+    andere zum Track steht, statt hinter einem Aufklapper in der Karte."""
+    liste = re.search(r"const REITER = \[(.*?)\];", html, re.S)
+    assert liste and "'text'" in liste.group(1), \
+        "Die rechte Spalte braucht einen Reiter für den Text"
+    assert re.search(r"function reiterText\(", html)
+    # Und der Reiter muss auch aufgerufen werden.
+    assert re.search(r"state\.infoReiter === 'text'\) reiterText\(", html), \
+        "Der Text-Reiter muss verdrahtet sein"
+
+
+def test_lyrics_bleiben_anklickbar(html):
+    """Ein Klick auf eine Zeile springt an die Stelle im Song. Das ist der
+    eigentliche Nutzen – ohne ihn wäre es nur eine Textdatei."""
+    fn = re.search(r"function reiterText\(.*?\n\}", html, re.S)
+    assert fn, "Der Text-Reiter fehlt"
+    assert "seek" in fn.group(0), "Die Zeilen müssen an die Stelle springen"

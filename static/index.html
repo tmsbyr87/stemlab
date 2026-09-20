@@ -660,7 +660,7 @@ const state = window.state = { models: [], selected: null, format: 'wav', jobs: 
   // Ordner, die in dieser Sitzung analysiert oder getrennt wurden. Nach einem
   // Lauf mit mehreren Dateien ist "was habe ich eben hinzugefügt?" die
   // häufigste Frage – dafür der Filter über der Liste.
-  neueDieseSitzung: new Set(), nurDieseSitzung: false,
+  neueDieseSitzung: new Set(), nurDieseSitzung: false, jobDaten: new Map(),
   // Playlists sind gespeicherte Filter: Name -> Liste von Ordnerpfaden.
   playlists: {}, playlistFilter: null };
 const COARSE = window.matchMedia('(pointer: coarse)').matches;   // Finger statt Maus?
@@ -1422,13 +1422,16 @@ function renderJob(d) {
     if (a.downbeats) { const bars = el('span', 'fact'); bars.innerHTML = `<b>${a.downbeats}</b> Takte <small>· ${a.beats_per_bar || 4}/4</small>`; facts.append(bars); }
   }
   const bar = e.querySelector('.bar-p'); bar.hidden = d.status === 'done' || d.status === 'error';
-  bar.className = 'bar-p' + ((d.status === 'running' && !d.percent) || d.status === 'queued' ? ' idle' : '');
-  bar.querySelector('i').style.width = d.percent ? d.percent + '%' : '';
+  const geschaetzt = !d.percent && d.status === 'running' ? schaetzeFortschritt(e, d) : 0;
+  const anzeige = d.percent || geschaetzt;
+  bar.className = 'bar-p' + ((d.status === 'running' && !anzeige) || d.status === 'queued' ? ' idle' : '');
+  bar.querySelector('i').style.width = anzeige ? anzeige + '%' : '';
   const log = e.querySelector('.log'); log.textContent = d.error || d.message || ''; log.className = 'log' + (d.error ? ' err' : ''); log.hidden = d.status === 'done';
 
   // Eine reine Analyse hat keine Stems, aber eine Aufnahme – auch die bekommt
   // ihre Karte mit Player, Akkorden und dem Knopf zum Trennen.
   e.dataset.status = d.status || '';
+  state.jobDaten.set(d.id, d);
   const hatInhalt = d.files.length || (d.extras || []).some(x => base(x) === 'original.wav');
   if (d.status === 'done' && hatInhalt && !e.dataset.filled) {
     e.dataset.filled = '1';
@@ -1844,6 +1847,41 @@ function fileRow(path) {
   row.append(n, play, seek, time, fin); return row;
 }
 
+/* Manche Läufe melden keinen Fortschritt: Whisper transkribiert in einem
+   Zug und sagt unterwegs nichts. Ein Balken, der minutenlang bei null
+   steht, sieht aus wie ein Absturz.
+
+   Die Dauer ist aber abschätzbar – auf der Apple-GPU braucht Whisper grob
+   ein Zehntel der Spielzeit. Der Balken folgt dieser Schätzung und bleibt
+   bei 95 % stehen: Die letzten Prozent gehören dem echten Ende, sonst
+   stünde er voll, während noch gerechnet wird. */
+
+const SCHAETZUNG = { lyrics: 0.12 };   // Anteil der Spielzeit
+
+// Ohne eigenen Takt bewegte sich der geschätzte Balken nur, wenn der Server
+// etwas meldet – bei Whisper also gar nicht.
+setInterval(() => {
+  for (const [id, karte] of state.jobs) {
+    if (karte.dataset.status !== 'running' || !karte._startZeit) continue;
+    const d = state.jobDaten && state.jobDaten.get(id);
+    if (!d || d.percent) continue;
+    const bar = karte.querySelector('.bar-p i');
+    if (bar) bar.style.width = schaetzeFortschritt(karte, d) + '%';
+  }
+}, 1000);
+
+function schaetzeFortschritt(karte, d) {
+  const anteil = SCHAETZUNG[d.kind];
+  const laenge = d.analysis && d.analysis.seconds_analyzed;
+  if (!anteil || !laenge) return 0;
+  if (!karte._startZeit) karte._startZeit = Date.now();
+  const erwartet = laenge * anteil * 1000;
+  const verstrichen = Date.now() - karte._startZeit;
+  // Nicht linear: Der Anfang (Modell laden) dauert länger, als die reine
+  // Rechenzeit vermuten lässt.
+  return Math.round(Math.min(0.95, verstrichen / erwartet) * 100);
+}
+
 /* ---------- Rechte Spalte ----------
    Alles zum gewählten Track an einer Stelle. Die Bausteine gab es schon,
    sie steckten nur in Aufklappern verteilt über die Karte: Die Analysewerte
@@ -1854,6 +1892,7 @@ const REITER = [
   { schluessel: 'analyse', label: 'Analyse' },
   { schluessel: 'tags',    label: 'Tags' },
   { schluessel: 'export',  label: 'Export' },
+  { schluessel: 'text',    label: 'Text' },
 ];
 
 state.infoReiter = 'analyse';
@@ -1896,6 +1935,52 @@ function reiterAnalyse(ziel, d) {
     block2.append(zeileMitBalken('Energie', a.energy), zeileMitBalken('Tanzbarkeit', tanz));
     ziel.append(block2);
   }
+}
+
+/* Der gesungene Text gehört zum Track – also dorthin, wo alles andere zum
+   Track steht. Bisher lag er hinter einem Aufklapper in der Karte.
+   Der Klick auf eine Zeile springt an die Stelle im Song; das ist der
+   eigentliche Nutzen, sonst wäre es nur eine Textdatei. */
+async function reiterText(ziel, d) {
+  const block = el('div', 'info-block');
+  block.append(Object.assign(el('div'), {
+    textContent: 'lade …', style: 'color:var(--muted);font-size:12.5px' }));
+  ziel.append(block);
+
+  let l;
+  try {
+    l = await (await fetch('/api/text?path=' + encodeURIComponent(d.folder + '/lyrics.json'))).json();
+  } catch (_) { l = null; }
+  // Die Spalte kann inzwischen einen anderen Track zeigen.
+  if (!state.infoTrack || state.infoTrack.folder !== d.folder) return;
+  block.innerHTML = '';
+
+  if (!l || !l.segments || !l.segments.length) {
+    block.append(Object.assign(el('div'), {
+      textContent: 'Noch kein Text. In der Karte unter „Lyrics“ transkribieren.',
+      style: 'color:var(--muted);font-size:12.5px;line-height:1.5' }));
+    return;
+  }
+
+  if (l.language) {
+    block.append(Object.assign(el('div'), {
+      textContent: 'Sprache: ' + l.language,
+      style: 'color:var(--muted);font-size:11px;margin-bottom:8px' }));
+  }
+  const box = el('div', 'lyrics');
+  for (const seg of l.segments) {
+    const zeile = el('div');
+    zeile.dataset.start = seg.start; zeile.dataset.end = seg.end;
+    zeile.innerHTML = `<span>${fmtTime(seg.start)}</span>`;
+    zeile.append(seg.text);
+    zeile.onclick = () => {
+      const m = state.mixers.get(d.id)
+        || [...state.mixers.values()].find(x => x.d && x.d.folder === d.folder);
+      if (m) m.seek(seg.start);
+    };
+    box.append(zeile);
+  }
+  block.append(box);
 }
 
 function reiterHinweis(ziel, text) {
@@ -2068,6 +2153,7 @@ function renderInfospalte() {
   const inhalt = el('div');
   if (state.infoReiter === 'analyse') reiterAnalyse(inhalt, d);
   else if (state.infoReiter === 'tags') reiterTags(inhalt, d);
+  else if (state.infoReiter === 'text') reiterText(inhalt, d);
   else reiterExport(inhalt, d);
   spalte.append(inhalt);
   notizfeld(spalte, d);
