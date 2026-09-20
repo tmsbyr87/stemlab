@@ -14,6 +14,10 @@
     --shadow:0 1px 2px rgba(20,23,33,.05),0 8px 28px -12px rgba(20,23,33,.16);
     --shadow-lg:0 2px 4px rgba(20,23,33,.06),0 24px 60px -20px rgba(20,23,33,.28);
     --r:16px; --r-sm:11px; --wave-bg:#f0f2f7; --dim:.2;
+    /* Die Wellenform steht dunkel in der farbigen Spur. Im dunklen
+       Erscheinungsbild bleibt sie dunkel: Die Stem-Farben sind dort
+       ebenso kräftig, ein heller Strich darin wirkte ausgewaschen. */
+    --wave-ink:rgba(0,0,0,.55);
     /* Gemeinsame Höhe aller Bedienelemente einer Zeile. Vorher standen
        fünf verschiedene nebeneinander – 47, 46, 37, 32, 31 –, was unruhig
        wirkt, auch wenn es niemand ausmisst. */
@@ -51,6 +55,10 @@
     --shadow:0 1px 2px rgba(20,23,33,.05),0 8px 28px -12px rgba(20,23,33,.16);
     --shadow-lg:0 2px 4px rgba(20,23,33,.06),0 24px 60px -20px rgba(20,23,33,.28);
     --r:16px; --r-sm:11px; --wave-bg:#f0f2f7; --dim:.2;
+    /* Die Wellenform steht dunkel in der farbigen Spur. Im dunklen
+       Erscheinungsbild bleibt sie dunkel: Die Stem-Farben sind dort
+       ebenso kräftig, ein heller Strich darin wirkte ausgewaschen. */
+    --wave-ink:rgba(0,0,0,.55);
     /* Gemeinsame Höhe aller Bedienelemente einer Zeile. Vorher standen
        fünf verschiedene nebeneinander – 47, 46, 37, 32, 31 –, was unruhig
        wirkt, auch wenn es niemand ausmisst. */
@@ -130,10 +138,14 @@
             overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .arr .lbl i{width:7px;height:7px;border-radius:50%;margin-right:6px;flex:none;
               background:var(--sc,var(--accent))}
-  .arr .spur{position:relative;height:22px;border-radius:5px;background:var(--panel-3);
-             overflow:hidden;cursor:pointer;margin:2px 0}
-  .arr .spur b{position:absolute;bottom:0;width:1px;background:var(--sc,var(--accent));
-               border-radius:1px}
+  /* Die Spur ist flächig in der Stem-Farbe, die Wellenform steht dunkel
+     darin – so wie in einer DAW. Dünne Balken auf grauem Grund ließen die
+     Struktur nur erahnen; gefüllt sieht man sofort, wann eine Spur läuft. */
+  .arr .spur{position:relative;height:22px;border-radius:5px;
+             background:var(--sc,var(--accent));overflow:hidden;cursor:pointer;margin:2px 0}
+  .arr .spur b{position:absolute;top:50%;transform:translateY(-50%);width:1px;
+               background:var(--wave-ink,rgba(0,0,0,.55));border-radius:1px}
+  .arr .spur.leer{background:var(--panel-3)}
   /* Abschnitte als eigene Spur: Sie ordnen alles darunter ein. */
   .arr .abschnitte{position:relative;height:19px;margin:0 0 4px;cursor:pointer}
   .arr .abschnitte u{position:absolute;top:0;bottom:0;border-radius:4px;
@@ -1582,7 +1594,7 @@ function buildResult(e, d) {
   e.querySelector('.mixer').hidden = false;
   const acts = e.querySelector('.actions'); acts.hidden = false;
   const pop = e.querySelector('.popover');
-  const mk = (label, fn) => { const b = el('button', 'ghost sm', label); b.onclick = fn; acts.appendChild(b); return b; };
+  const mk = (label, fn) => { const b = el('button', 'ghost sm', label); b.onclick = () => fn(b); acts.appendChild(b); return b; };
   let open = null;
   const toggle = (key, build) => { if (open === key) { pop.classList.remove('show'); open = null; return; } open = key; pop.innerHTML = ''; build(pop); pop.classList.add('show'); };
   const run = async (kind, params, msg) => { try { await api('/api/actions', { kind, folder: d.folder, params }); toast(msg); pop.classList.remove('show'); open = null; } catch (err) { toast(err.message, true); } };
@@ -1612,8 +1624,8 @@ function buildResult(e, d) {
   // Der Aufbau gehört in die Karte, nicht in die schmale Infospalte: Bei
   // sieben Spuren bleibt dort je 22 px Höhe, und ein Takt wäre keine zwei
   // Pixel breit. Struktur sieht man so nicht.
-  mk('Aufbau', () => togglePanel(e, '.arrangement-panel', () => zeichneArrangement(e.querySelector('.arrangement-panel'), d)));
-  const chordsBtn = mk('Akkorde', () => togglePanel(e, '.chords-panel', () => loadChords(e, d)));
+  mk('Aufbau', (b) => togglePanel(e, '.arrangement-panel', () => zeichneArrangement(e.querySelector('.arrangement-panel'), d), b));
+  const chordsBtn = mk('Akkorde', (b) => togglePanel(e, '.chords-panel', () => loadChords(e, d), b));
   // Ein Knopf für den gesungenen Text: Er führt in die rechte Spalte, die
   // ihn zeigt oder das Transkribieren anbietet. Zwei Knöpfe – einer zum
   // Erzeugen, einer zum Ansehen – waren eine Trennung, die nur die Technik
@@ -1637,7 +1649,7 @@ function buildResult(e, d) {
       } catch (err) { toast(err.message, true); splitBtn.disabled = false; }
     });
   }
-  mk('Tags & Cover', () => togglePanel(e, '.tags-panel', () => loadTags(e, d)));
+  mk('Tags & Cover', (b) => togglePanel(e, '.tags-panel', () => loadTags(e, d), b));
   const expBtn = mk('DJ-Export', async () => {
     if (!SET.values.export_rekordbox && !SET.values.export_traktor) {
       toast('Wähle zuerst in den Einstellungen unter „DJ-Export" ein Ziel.', true);
@@ -1661,7 +1673,24 @@ function buildResult(e, d) {
   }
   e._lyricsBtn = lyricsBtn;
 }
-function togglePanel(e, sel, loader) { const p = e.querySelector(sel); if (p.classList.contains('show')) { p.classList.remove('show'); return; } p.classList.add('show'); if (!p.dataset.loaded) { p.dataset.loaded = '1'; loader(p); } }
+/* Einen Bereich der Karte auf- und zuklappen – und den Knopf mitnehmen.
+   Ohne das sieht man nach dem Klick zwar unten etwas erscheinen, weiß aber
+   beim nächsten Blick nicht mehr, welcher Bereich offen ist. Die Regel
+   `.ghost.on` gab es längst, sie wurde nur nie gesetzt. */
+function togglePanel(e, sel, loader, knopf) {
+  const p = e.querySelector(sel);
+  const offen = !p.classList.contains('show');
+  // Nur ein Bereich zur Zeit: Zwei offene Panels übereinander machen die
+  // Karte unübersichtlich, und man sucht, wohin man gerade geklickt hat.
+  for (const anderes of e.querySelectorAll('.panel.show')) {
+    if (anderes !== p) anderes.classList.remove('show');
+  }
+  for (const b of e.querySelectorAll('.actions button.on')) b.classList.remove('on');
+
+  p.classList.toggle('show', offen);
+  if (knopf) knopf.classList.toggle('on', offen);
+  if (offen && !p.dataset.loaded) { p.dataset.loaded = '1'; loader(p); }
+}
 // --- Tag-Editor -------------------------------------------------------------
 const TAG_LABELS = [['title','Titel'],['artist','Artist'],['album','Album'],['label','Label'],
   ['remixer','Remix'],['composer','Composer'],['grouping','Grouping'],['genre','Genre'],
@@ -2237,7 +2266,7 @@ async function zeichneArrangement(ziel, d) {
       const balken = el('b');
       balken.style.left = (i / n * 100) + '%';
       balken.style.width = (100 / n) + '%';
-      balken.style.height = Math.max(2, wert / hoechst * 100) + '%';
+      balken.style.height = Math.max(6, wert / hoechst * 86) + '%';
       spur.append(balken);
     }
     spur.onclick = (ev) => springe(ev.offsetX / spur.clientWidth);

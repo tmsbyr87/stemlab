@@ -1261,7 +1261,7 @@ def test_arrangement_steht_in_der_karte(html):
     assert re.search(r'panel arrangement-panel', html), \
         "Die Karte braucht einen Bereich für das Arrangement"
     # Und einen Knopf, der genau diesen Bereich öffnet – nicht irgendeinen.
-    knopf = re.search(r"mk\('Aufbau', \(\) => togglePanel\(e, '([^']+)'", html)
+    knopf = re.search(r"mk\('Aufbau', \(b\) => togglePanel\(e, '([^']+)'", html)
     assert knopf, "Der Aufbau gehört zu den Aktionen der Karte"
     assert knopf.group(1) == ".arrangement-panel", \
         f"Der Knopf öffnet {knopf.group(1)} statt des Arrangements"
@@ -1286,3 +1286,43 @@ def test_arrangement_nutzt_die_volle_breite(html):
     assert re.search(r"const n = Math\.min\(werte\.length, Math\.max\(\d+, "
                      r"Math\.round\(breite / \d+\)\)\)", html), \
         "Die Auflösung muss sich nach der Breite richten"
+
+
+# --------------------------------------------------------------------------- #
+# Offene Bereiche sind erkennbar
+# --------------------------------------------------------------------------- #
+
+def test_knopf_zeigt_ob_sein_bereich_offen_ist(html):
+    """Akkorde, Text, Aufbau, Tags – alle öffnen einen Bereich, aber der
+    Knopf sah unverändert aus. Man klickt, etwas erscheint weiter unten,
+    und beim nächsten Blick weiß man nicht mehr, was offen ist."""
+    fn = re.search(r"function togglePanel\(.*?\n\}", html, re.S)
+    assert fn, "togglePanel nicht gefunden"
+    assert re.search(r"knopf\.classList\.toggle\('on', offen\)", fn.group(0)), \
+        "Der Knopf muss seinen Zustand mitbekommen"
+
+    # Nur ein Bereich zur Zeit: Zwei offene Panels übereinander machen die
+    # Karte unübersichtlich, und die Markierung wäre mehrdeutig.
+    assert re.search(r"anderes\.classList\.remove\('show'\)", fn.group(0)), \
+        "Beim Öffnen müssen die anderen Bereiche schließen"
+    assert re.search(r"button\.on'\)\) b\.classList\.remove\('on'\)", fn.group(0)), \
+        "Und deren Knöpfe ihre Markierung verlieren"
+
+
+def test_offener_knopf_ist_farbig_hervorgehoben(html):
+    """Nicht nur dunkler, sondern in der Akzentfarbe – wie die aktive
+    Playlist in der Seitenleiste."""
+    assert re.search(r"\.ghost\.on\{[^}]*var\(--accent", html), \
+        "Ein offener Bereich gehört farbig markiert"
+
+
+# --------------------------------------------------------------------------- #
+# Arrangement: gefüllte Spuren
+# --------------------------------------------------------------------------- #
+
+def test_arrangement_spuren_sind_flaechig(html):
+    """Dünne Balken auf grauem Grund lassen die Struktur nur erahnen. Eine
+    gefüllte Fläche in der Stem-Farbe zeigt sofort, wann eine Spur läuft –
+    so wie es Produzenten aus ihrer DAW kennen."""
+    assert re.search(r"\.arr \.spur\{[^}]*background:var\(--sc", html, re.S), \
+        "Die Spur selbst gehört in der Stem-Farbe eingefärbt"
