@@ -278,7 +278,7 @@ liegen.
 venv/bin/python -m pytest
 ```
 
-224 Tests, rund anderthalb Sekunden. Sie brauchen **keine Audiodateien**: das
+467 Tests, rund zweieinhalb Sekunden. Sie brauchen **keine Audiodateien**: das
 Testmaterial wird erzeugt, damit die Wahrheit per Konstruktion feststeht. Ein
 Raster aus exakt 124 BPM muss 124 BPM ergeben, eine g-Moll-Kadenz muss g-Moll
 ergeben. So laufen die Tests überall, ohne dass Musik im Repo liegt.
@@ -289,9 +289,10 @@ erfundene Lyrics über Stille, eine Cover-URL, die an Klammern im Ordnernamen
 zerbrach. Jeder Test trägt im Docstring, worum es ging.
 
 Geprüft wurde die Suite per Mutationstest: gezielt eingebaute Fehler im
-Produktivcode müssen einen Test umwerfen. Von 23 Mutationen werden 22
-gefangen; die eine Ausnahme ist folgenlos, weil eine zweite Prüfung im Code
-dahinter greift.
+Produktivcode müssen einen Test umwerfen. Über 90 Mutationen quer durch
+`analysis.py`, `engine.py` und `postprocess.py` werden gefangen; die
+wenigen Ausnahmen sind gleichwertige Umformungen, die nichts am Verhalten
+ändern.
 
 | Datei | Deckt ab |
 |---|---|
@@ -303,12 +304,21 @@ dahinter greift.
 | `tests/test_frontend.py` | Camelot-Farben, Cover-URL, Feldabgleich |
 | `tests/test_export.py` | Rekordbox- und Traktor-Format, Cue-Erkennung |
 | `tests/test_formats.py` | Zeitstempel, Dateinamen, Akkorde, MIDI-Klick, Sidecars |
+| `tests/test_engine.py` | Songnamen, Stem-Labels, Video-Endungen, Modellauswahl |
+| `tests/test_engine_taps.py` | Fortschritt aus tqdm, Logdurchreichung, Gerätemeldung |
+| `tests/test_engine_katalog.py` | Modellkatalog, Ensembles, Separator-Cache |
+| `tests/test_engine_run_model.py` | Pfadauflösung der Stems, Rückfall von der GPU auf die CPU |
+| `tests/test_engine_ffmpeg.py` | ffmpeg-Argumente und Fehlermeldungen |
+| `tests/test_audio_loops.py` | Loop-Schnitt auf Taktgrenzen, Wellenformen |
+| `tests/test_audio_mix.py` | Mixdown-Filterkette, Tonhöhe und Tempo |
+| `tests/test_audio_refine.py` | Vocal-Veredelung, Steuerung des DJ-Exports |
 
 Bei jedem Push laufen sie über GitHub Actions auf macOS gegen Python 3.10 bis
 3.12, dazu `shellcheck` über die Installationsskripte.
 
 Nicht abgedeckt: die Trennmodelle selbst (brauchen GPU und Gigabyte an
-Gewichten) und echtes Audio. Was das für Änderungen bedeutet, steht in
+Gewichten), der vollständige Durchlauf von `separate()` und die Transkription
+(Whisper liegt nicht in der CI). Was das für Änderungen bedeutet, steht in
 [AGENTS.md](AGENTS.md).
 
 ## Lizenz

@@ -26,3 +26,6 @@ lyrics.json
 
 # Arbeitsreste anderer Sitzungen
 _to_delete/
+
+# Arbeitsnotizen von Coding-Agenten (Roadmaps, Phasenprotokolle)
+.planning/

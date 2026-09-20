@@ -199,7 +199,7 @@ Kommentare erklären das **Warum**, nicht das Was.
 venv/bin/python -m pytest
 ```
 
-224 Tests, rund anderthalb Sekunden, **keine Audiodateien nötig** – das
+467 Tests, rund zweieinhalb Sekunden, **keine Audiodateien nötig** – das
 Material wird synthetisch erzeugt, seine Wahrheit steht dadurch per
 Konstruktion fest. Ein Raster aus exakt 124 BPM muss 124 BPM ergeben, eine
 g-Moll-Kadenz muss g-Moll ergeben.
@@ -214,11 +214,31 @@ g-Moll-Kadenz muss g-Moll ergeben.
 | `tests/test_frontend.py` | Camelot-Farben, Cover-URL, Feldabgleich mit dem Server |
 | `tests/test_export.py` | Rekordbox- und Traktor-Format, Cue-Erkennung |
 | `tests/test_formats.py` | Zeitstempel, Dateinamen, Akkorde, MIDI-Klick, Sidecars |
+| `tests/test_engine.py` | Songnamen, Stem-Labels, Video-Endungen, Modellauswahl |
+| `tests/test_engine_taps.py` | Fortschritt aus tqdm, Logdurchreichung, Gerätemeldung |
+| `tests/test_engine_katalog.py` | Modellkatalog, Ensembles, Separator-Cache |
+| `tests/test_engine_run_model.py` | Pfadauflösung der Stems, Rückfall von der GPU auf die CPU |
+| `tests/test_engine_ffmpeg.py` | ffmpeg-Argumente und Fehlermeldungen |
+| `tests/test_audio_loops.py` | Loop-Schnitt auf Taktgrenzen, Wellenformen |
+| `tests/test_audio_mix.py` | Mixdown-Filterkette, Tonhöhe und Tempo |
+| `tests/test_audio_refine.py` | Vocal-Veredelung, Steuerung des DJ-Exports |
 
-Die Tests sind **Regressionstests für real aufgetretene Fehler**. Jeder
-prüfbare Fall stand einmal falsch im Code. Wenn einer rot wird, hast du sehr
-wahrscheinlich einen dieser Fehler wieder eingebaut – lies den Docstring, dort
-steht, worum es ging.
+Die älteren Tests sind **Regressionstests für real aufgetretene Fehler**.
+Jeder prüfbare Fall stand einmal falsch im Code. Wenn einer rot wird, hast du
+sehr wahrscheinlich einen dieser Fehler wieder eingebaut – lies den Docstring,
+dort steht, worum es ging.
+
+Die Tests für `engine.py` und die Audiobearbeitung in `postprocess.py` sind
+anderer Natur: Sie halten vorhandenes Verhalten fest, das vorher ungeprüft
+war. Das gemeinsame Gerüst – eine Fixture, die den Modulzustand von `engine`
+zurücksetzt, plus Doppelgänger für `audio_separator` – steht in
+`tests/conftest.py`.
+
+Wichtig beim Schreiben solcher Tests: Sie sind sofort grün, weil sie
+beschreiben, was ohnehin passiert. Das sagt für sich genommen nichts. Erst
+eine Mutationsprobe zeigt, ob ein Test überhaupt greift. Mehrfach lag dabei
+der Fehler im Test-Doppelgänger, nicht im Code – ein Fake, der den Ablauf
+nur ungefähr nachbildet, erzeugt grüne Tests ohne Aussage.
 
 Bei jedem Push laufen sie über GitHub Actions auf macOS gegen Python 3.10,
 3.11 und 3.12, dazu `shellcheck` über die Installationsskripte.
@@ -232,9 +252,12 @@ würde.
 Was die Tests **nicht** abdecken, damit du dich nicht in falscher Sicherheit
 wiegst:
 
-- **Kein echtes Audio.** Getestet wird gegen synthetische Signale. Dass die
-  Tonart an echter Musik stimmt, ist an zwei Tracks gegen Mixed In Key
-  belegt – nicht an einem Testsatz.
+- **Kein echtes Audio in der Suite.** Getestet wird gegen synthetische
+  Signale. Ein manueller Durchlauf über sechs Clubtracks (2026-09-20,
+  Techno bis Organic House) hat die Kette von der Trennung bis zum
+  DJ-Export bestätigt: Stems ohne Clipping, plausible Tempi, musikalisch
+  sinnvolle Cue-Points. Das ist ein einmaliger Beleg, kein Testfall –
+  echte Musik gehört nicht ins Repo.
 - **Die Schwellen der Lyrics-Filterung sind an einem einzigen Track
   kalibriert** (`SILENCE_DB = -40`, `FILLER_DB = -20` in `postprocess.py`).
   Die Tests prüfen, dass die Logik greift, nicht dass die Werte für jedes
@@ -245,7 +268,21 @@ wiegst:
   echten Tempowechseln sollte die Downbeat-Gegenprobe greifen und die
   Konfidenz senken – dieser Fall ist nicht getestet.
 - **Die Trennmodelle selbst sind nicht getestet.** Sie brauchen GPU und
-  Gigabyte an Gewichten; geprüft wird nur, was ohne sie läuft.
+  Gigabyte an Gewichten; geprüft wird nur, was ohne sie läuft. Die Logik
+  drumherum – Modellkatalog, Cache, Fortschritt, der Rückfall von der
+  Apple-GPU auf die CPU – ist inzwischen abgedeckt, `separate()` und
+  `analyze_only()` als Ganzes nicht.
+- **`transcribe()` ist nur an der Eingangsbedingung geprüft.** Whisper liegt
+  nicht in der CI, und ein Test, der es doch anwirft, zieht ein Modell aus
+  dem Netz und läuft eine halbe Minute.
+- **Whisper wiederholt sich sporadisch.** Im Durchlauf vom 2026-09-20 lieferte
+  ein Track einmal ein einziges Segment mit 110-mal „Uh-oh", beim zweiten Lauf
+  desselben Tracks sauberen Text. `drop_hallucinations` greift nur bei Stille,
+  nicht bei Wiederholung innerhalb eines Segments.
+- **Eine niedrige Tempo-Konfidenz wird nicht sichtbar gemacht.** Bei einem
+  Track der Stichprobe stand `bpm_confidence` auf 0,01, während die Oberfläche
+  122,09 BPM ohne Warnung anzeigte (der Median der Beat-Abstände sagte 120,00).
+  Wer den Wert ungeprüft ins Set übernimmt, merkt es erst beim Mischen.
 - **Die Analyse läuft vor der Trennung** auf dem Mix, nicht auf den Stems. Für
   die Tonart wäre der `other`-Stem sauberer; die Bandbegrenzung auf
   100–1000 Hz war die günstigere Lösung und reicht bislang.

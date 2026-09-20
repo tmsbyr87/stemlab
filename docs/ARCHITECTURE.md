@@ -108,11 +108,16 @@ deshalb läuft die CI ohne PyTorch.
 [LARGE]     static/index.html 1609 Z. · postprocess.py 1100 Z. ·
             server.py 849 Z. – jeweils deutlich über 300 Zeilen.
 [GEPRUEFT]  postprocess.py bündelt vier Themen, bleibt aber bewusst
-            ein Modul: kein Thema über 241 Zeilen, und stem_files /
-            stem_name werden 23-mal aus allen Themen gerufen. Eine
-            Aufteilung ergäbe fünf Dateien mit derselben Kopplung.
-            Begründung und Kriterien für eine Neubewertung in
-            .planning/ENTSCHEIDUNG-postprocess-aufteilung.md.
+            ein Modul. Gemessen: DJ-Export 241 Zeilen, Tags/Cover 236,
+            Audiobearbeitung 168, Lyrics 110, gemeinsame Helfer 31 –
+            kein Thema ist für sich zu groß. Dagegen werden stem_files
+            und stem_name 23-mal aus allen vier Themen gerufen. Eine
+            Aufteilung ergäbe vier Themenmodule plus ein Hilfsmodul,
+            das alle importieren: dieselbe Kopplung, nur verteilt, und
+            server.py bräuchte vier Importe statt einem.
+            Neu zu entscheiden, wenn ein Thema über ~400 Zeilen wächst
+            oder eigene Abhängigkeiten bekommt, die die anderen nicht
+            brauchen.
 [CRUFT]     _to_delete/ enthält alte Server- und HTML-Stände
             (server.v3.py, index.v3/v4/new.html). Untracked und
             in .gitignore, aber im Arbeitsverzeichnis.
