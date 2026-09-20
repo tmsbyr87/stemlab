@@ -505,3 +505,134 @@ def test_notiz_ausserhalb_des_zielordners_wird_abgelehnt(client, tmp_path):
     """Derselbe Schutz wie für alle Pfade: nichts außerhalb des Zielordners."""
     antwort = client.post("/api/notes", json={"folder": "/etc", "text": "nein"})
     assert antwort.status_code >= 400
+
+
+# --------------------------------------------------------------------------- #
+# Sammelanalyse eines Ordners
+# --------------------------------------------------------------------------- #
+#
+# Wer ein Genre-Profil bauen will, braucht 30 und mehr Tracks. Die einzeln
+# hineinzuziehen ist keine Arbeitsweise – der Ordner wandert als Ganzes in
+# die Warteschlange.
+
+def _wav(pfad, sekunden=1.0):
+    import numpy as np, soundfile as sf
+    sf.write(str(pfad), np.zeros(int(44100 * sekunden), dtype="float32"), 44100)
+    return pfad
+
+
+def test_sammelanalyse_reiht_jede_audiodatei_ein(client, tmp_path, monkeypatch):
+    quelle = tmp_path / "Sammlung"; quelle.mkdir()
+    for name in ("a.mp3", "b.wav", "c.flac"):
+        _wav(quelle / name)
+    monkeypatch.setattr(server.WORK, "put", lambda _id: None)
+
+    antwort = client.post("/api/analyze-folder", json={"folder": str(quelle)})
+
+    assert antwort.status_code == 200
+    assert antwort.json()["eingereiht"] == 3
+
+
+def test_sammelanalyse_ignoriert_fremde_dateien(client, tmp_path, monkeypatch):
+    """Cover-Bilder, Playlisten und Notizen liegen in Musikordnern herum."""
+    quelle = tmp_path / "Sammlung"; quelle.mkdir()
+    _wav(quelle / "song.mp3")
+    (quelle / "cover.jpg").write_bytes(b"x")
+    (quelle / "liste.m3u8").write_text("x")
+    (quelle / "notiz.txt").write_text("x")
+    monkeypatch.setattr(server.WORK, "put", lambda _id: None)
+
+    assert client.post("/api/analyze-folder", json={"folder": str(quelle)}).json()["eingereiht"] == 1
+
+
+def test_sammelanalyse_ueberspringt_bereits_analysierte(client, tmp_path, monkeypatch):
+    """Ein zweiter Lauf über denselben Ordner soll nicht alles neu rechnen –
+    bei 50 Tracks wären das 20 Minuten für nichts."""
+    quelle = tmp_path / "Sammlung"; quelle.mkdir()
+    _wav(quelle / "schon da.mp3"); _wav(quelle / "neu.mp3")
+    fertig = tmp_path / "schon da"; fertig.mkdir()
+    (fertig / "analysis.json").write_text('{"bpm": 124}')
+    monkeypatch.setattr(server, "output_root", lambda: tmp_path)
+    monkeypatch.setattr(server.WORK, "put", lambda _id: None)
+
+    antwort = client.post("/api/analyze-folder", json={"folder": str(quelle)})
+
+    assert antwort.json()["eingereiht"] == 1
+    assert antwort.json()["uebersprungen"] == 1
+
+
+def test_sammelanalyse_kann_alles_neu_rechnen(client, tmp_path, monkeypatch):
+    """Wer die Analyse verbessert hat, will sie auf alles anwenden."""
+    quelle = tmp_path / "Sammlung"; quelle.mkdir()
+    _wav(quelle / "schon da.mp3")
+    fertig = tmp_path / "schon da"; fertig.mkdir()
+    (fertig / "analysis.json").write_text("{}")
+    monkeypatch.setattr(server, "output_root", lambda: tmp_path)
+    monkeypatch.setattr(server.WORK, "put", lambda _id: None)
+
+    antwort = client.post("/api/analyze-folder", json={"folder": str(quelle), "neu": True})
+
+    assert antwort.json()["eingereiht"] == 1
+
+
+def test_sammelanalyse_geht_in_unterordner(client, tmp_path, monkeypatch):
+    """Sammlungen sind nach Genre sortiert – eine Ebene tiefer reicht."""
+    quelle = tmp_path / "Sammlung"; (quelle / "Techno").mkdir(parents=True)
+    _wav(quelle / "oben.mp3"); _wav(quelle / "Techno" / "unten.mp3")
+    monkeypatch.setattr(server.WORK, "put", lambda _id: None)
+
+    assert client.post("/api/analyze-folder", json={"folder": str(quelle)}).json()["eingereiht"] == 2
+
+
+def test_sammelanalyse_leerer_ordner(client, tmp_path, monkeypatch):
+    leer = tmp_path / "Leer"; leer.mkdir()
+    monkeypatch.setattr(server.WORK, "put", lambda _id: None)
+
+    antwort = client.post("/api/analyze-folder", json={"folder": str(leer)})
+
+    assert antwort.status_code == 400
+    assert "keine" in antwort.json()["detail"].lower()
+
+
+def test_sammelanalyse_trennt_keine_stems(client, tmp_path, monkeypatch):
+    """Analysieren dauert Sekunden, Trennen Minuten. Für ein Profil braucht
+    es nur die Analyse."""
+    quelle = tmp_path / "S"; quelle.mkdir(); _wav(quelle / "a.mp3")
+    eingereiht = []
+    monkeypatch.setattr(server.WORK, "put", lambda job_id: eingereiht.append(job_id))
+
+    client.post("/api/analyze-folder", json={"folder": str(quelle)})
+
+    with server.JOBS_LOCK:
+        arten = {server.JOBS[i].kind for i in eingereiht}
+    assert arten == {"analyze"}
+
+
+def test_sammelanalyse_loescht_die_quelldateien_nicht(client, tmp_path, monkeypatch):
+    """Der wichtigste Test dieser Funktion.
+
+    Bei hochgeladenen Dateien räumt der Worker die Zwischendatei weg. Beim
+    Sammellauf zeigt die Quelle aber auf die Musiksammlung des Nutzers –
+    dort etwas zu löschen wäre unverzeihlich.
+    """
+    quelle = tmp_path / "Sammlung"; quelle.mkdir()
+    datei = _wav(quelle / "kostbar.mp3")
+    monkeypatch.setattr(server, "output_root", lambda: tmp_path / "ziel")
+    (tmp_path / "ziel").mkdir()
+
+    def falsche_analyse(source, output_root, **kwargs):
+        ordner = output_root / "kostbar"
+        ordner.mkdir(exist_ok=True)
+        return server.engine.JobResult(folder=ordner, seconds=0.1, device="cpu")
+
+    monkeypatch.setattr(server.engine, "analyze_only", falsche_analyse)
+    # Die Warteschlange kann von anderen Tests gefüllt sein – deshalb den
+    # eigenen Job über seine ID holen, statt blind zu entnehmen.
+    antwort = client.post("/api/analyze-folder", json={"folder": str(quelle)})
+    job_id = antwort.json()["ids"][0]
+    with server.JOBS_LOCK:
+        job = server.JOBS[job_id]
+
+    server.run_job(job)
+
+    assert datei.exists(), "Die Quelldatei des Nutzers wurde gelöscht"

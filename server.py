@@ -271,9 +271,12 @@ def run_job(job: Job) -> None:
     finally:
         job.finished = time.time()
         # Die hochgeladene Zwischendatei wegräumen – aber nur, wenn sie
-        # wirklich eine ist. Beim nachträglichen Trennen ist die Quelle die
-        # original.wav im Ergebnisordner; die muss bleiben.
-        if job.source and not job.options.get("reuse"):
+        # wirklich eine ist. Zwei Fälle, in denen die Quelle bleiben muss:
+        # Beim nachträglichen Trennen ist sie die original.wav im
+        # Ergebnisordner, und beim Sammellauf liegt sie in der
+        # Musiksammlung des Nutzers. Dort etwas zu löschen wäre
+        # unverzeihlich.
+        if job.source and not job.options.get("reuse") and not job.options.get("sammellauf"):
             job.source.unlink(missing_ok=True)
         publish(job)
         prune_jobs()
@@ -861,6 +864,59 @@ async def export_dj(request: Request) -> JSONResponse:
         LOG.warning("Export fehlgeschlagen (%s): %s", folder.name, exc)
         raise HTTPException(400, f"Export fehlgeschlagen: {exc}")
     return JSONResponse({"files": [str(p) for p in dateien], "log": meldungen})
+
+
+@app.post("/api/analyze-folder")
+async def analyze_folder(request: Request) -> JSONResponse:
+    """Einen ganzen Ordner analysieren, ohne Stems zu trennen.
+
+    Für ein Genre-Profil braucht es dreißig und mehr Tracks. Die einzeln
+    hineinzuziehen ist keine Arbeitsweise. Getrennt wird dabei nicht:
+    Analysieren dauert Sekunden, Trennen Minuten, und für Tempo, Tonart
+    und Aufbau reicht die Analyse.
+
+    Der Quellordner darf überall liegen – gelesen wird nur, geschrieben
+    ausschließlich in den Zielordner.
+    """
+    payload = await request.json()
+    roh = str(payload.get("folder", "")).strip()
+    if not roh:
+        raise HTTPException(400, "Kein Ordner angegeben.")
+    quelle = Path(roh).expanduser()
+    if not quelle.is_dir():
+        raise HTTPException(400, "Das ist kein Ordner.")
+
+    # Eine Ebene tiefer genügt: Sammlungen sind nach Genre sortiert, nicht
+    # beliebig verschachtelt.
+    dateien = sorted(
+        p for p in [*quelle.iterdir(), *(k for d in quelle.iterdir() if d.is_dir() for k in d.iterdir())]
+        if p.is_file() and p.suffix.lower() in ACCEPTED_SUFFIXES
+    )
+    if not dateien:
+        raise HTTPException(400, "In diesem Ordner liegen keine Audiodateien.")
+
+    neu_rechnen = bool(payload.get("neu"))
+    ziel = output_root()
+    eingereiht, uebersprungen = [], 0
+
+    for datei in dateien:
+        if not neu_rechnen:
+            # Derselbe Name wie beim Einzellauf – so findet sich wieder,
+            # was schon analysiert wurde.
+            vorhanden = ziel / engine.safe_song_name(datei.name)
+            if (vorhanden / "analysis.json").is_file():
+                uebersprungen += 1
+                continue
+        job = Job(id=uuid.uuid4().hex[:8], kind="analyze", display_name=datei.name,
+                  source=datei, options={"tags": False, "rename": False, "sammellauf": True})
+        with JOBS_LOCK:
+            JOBS[job.id] = job
+        WORK.put(job.id)
+        publish(job)
+        eingereiht.append(job.id)
+
+    return JSONResponse({"eingereiht": len(eingereiht), "uebersprungen": uebersprungen,
+                         "gesamt": len(dateien), "ids": eingereiht})
 
 
 @app.post("/api/separate-folder")
