@@ -247,3 +247,92 @@ def test_tag_file_auf_bereits_getaggter_datei(tmp_path):
     tags = postprocess.read_tags(pfad)
     assert tags["bpm"] == "128"
     assert tags["title"] == "Neu – Vocals"
+
+
+# --------------------------------------------------------------------------- #
+# Tags der Quelldatei übernehmen
+# --------------------------------------------------------------------------- #
+#
+# Gekaufte Tracks bringen Titel, Artist, Label, Genre und ein Cover mit.
+# StemLab schrieb bisher nur Tempo und Tonart und ließ den Rest fallen –
+# obwohl er in der Datei stand, die gerade analysiert wurde.
+
+def test_uebernimmt_titel_und_artist_aus_der_quelle(tmp_path):
+    quelle = _tonspur(tmp_path / "quelle.wav")
+    postprocess.write_tags(quelle, {"title": "Kreisel", "artist": "Carsten Halm",
+                                    "label": "Some Label", "genre": "Melodic House"})
+    ziel = _tonspur(tmp_path / "ziel.wav")
+
+    postprocess.uebernimm_tags(quelle, [ziel])
+
+    t = postprocess.read_tags(ziel)
+    assert t["artist"] == "Carsten Halm"
+    assert t["label"] == "Some Label"
+    assert t["genre"] == "Melodic House"
+
+
+def test_uebernimmt_das_cover(tmp_path):
+    quelle = _tonspur(tmp_path / "quelle.wav")
+    postprocess.write_cover(quelle, tiny_png(), "image/png")
+    ziel = _tonspur(tmp_path / "ziel.wav")
+
+    postprocess.uebernimm_tags(quelle, [ziel])
+
+    assert postprocess.read_cover(ziel) is not None
+
+
+def test_uebernahme_ueberschreibt_tempo_und_tonart_nicht(tmp_path):
+    """Die gemessenen Werte sind besser als die aus der Datei – viele
+    Plattformen schreiben gerundete oder falsche BPM-Angaben."""
+    quelle = _tonspur(tmp_path / "quelle.wav")
+    postprocess.write_tags(quelle, {"title": "X", "bpm": "999", "key": "Cm"})
+    ziel = _tonspur(tmp_path / "ziel.wav")
+    postprocess.write_tags(ziel, {"bpm": "124", "key": "4A"})
+
+    postprocess.uebernimm_tags(quelle, [ziel])
+
+    t = postprocess.read_tags(ziel)
+    assert t["bpm"] == "124", "Das gemessene Tempo bleibt"
+    assert t["key"] == "4A"
+    assert t["title"] == "X", "Der Titel kommt aus der Quelle"
+
+
+def test_uebernahme_ueberschreibt_vorhandenes_nicht(tmp_path):
+    """Wer selbst etwas eingetragen hat, soll es behalten."""
+    quelle = _tonspur(tmp_path / "quelle.wav")
+    postprocess.write_tags(quelle, {"artist": "Aus der Datei"})
+    ziel = _tonspur(tmp_path / "ziel.wav")
+    postprocess.write_tags(ziel, {"artist": "Von Hand gesetzt"})
+
+    postprocess.uebernimm_tags(quelle, [ziel])
+
+    assert postprocess.read_tags(ziel)["artist"] == "Von Hand gesetzt"
+
+
+def test_uebernahme_ohne_tags_in_der_quelle(tmp_path):
+    """Eine Datei ohne Tags darf nichts kaputtmachen."""
+    quelle = _tonspur(tmp_path / "quelle.wav")
+    ziel = _tonspur(tmp_path / "ziel.wav")
+    postprocess.write_tags(ziel, {"title": "Bleibt"})
+
+    postprocess.uebernimm_tags(quelle, [ziel])
+
+    assert postprocess.read_tags(ziel)["title"] == "Bleibt"
+
+
+def test_uebernahme_auf_mehrere_dateien(tmp_path):
+    """Alle Stems bekommen dieselben Angaben."""
+    quelle = _tonspur(tmp_path / "quelle.wav")
+    postprocess.write_tags(quelle, {"artist": "Wer"})
+    ziele = [_tonspur(tmp_path / f"stem{i}.wav") for i in range(3)]
+
+    postprocess.uebernimm_tags(quelle, ziele)
+
+    assert all(postprocess.read_tags(z)["artist"] == "Wer" for z in ziele)
+
+
+def test_uebernahme_ueberlebt_unlesbare_quelle(tmp_path):
+    kaputt = tmp_path / "kaputt.mp3"; kaputt.write_bytes(b"kein audio")
+    ziel = _tonspur(tmp_path / "ziel.wav")
+
+    postprocess.uebernimm_tags(kaputt, [ziel])   # darf nicht werfen

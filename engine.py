@@ -667,6 +667,13 @@ def separate(
             result.extras += _analysis.write_sidecars(target, analysis_obj)
             if options.get("tags", True):
                 result.files = postprocess.tag_folder(target, analysis_obj.as_dict(), song_name, bool(options.get("rename")), say)
+                # Titel, Artist, Label, Genre und Cover stehen in der
+                # Quelldatei – gekaufte Tracks bringen das mit. Sie fallen
+                # zu lassen und den Nutzer die Felder von Hand füllen zu
+                # lassen wäre Arbeit für nichts.
+                if source.exists():
+                    postprocess.uebernimm_tags(source, result.files + [original])
+                    say("Titel, Artist und Cover aus der Datei übernommen.")
         say("Berechne Wellenformen …")
         result.extras.append(postprocess.write_waveforms(target, result.files + [original]))
 

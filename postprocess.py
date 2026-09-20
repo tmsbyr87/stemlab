@@ -706,6 +706,48 @@ def remove_cover(path: Path) -> None:
     audio.save()
 
 
+# Felder, die aus der Quelldatei übernommen werden. Tempo und Tonart stehen
+# bewusst nicht dabei: Die gemessenen Werte sind besser als die in der Datei,
+# viele Plattformen schreiben gerundete oder schlicht falsche BPM-Angaben.
+UEBERNAHME_FELDER = ("title", "artist", "album", "label", "remixer",
+                     "composer", "grouping", "genre", "year")
+
+
+def uebernimm_tags(quelle: Path, ziele: list[Path]) -> None:
+    """Titel, Artist, Label, Genre und Cover aus der Quelldatei übernehmen.
+
+    Gekaufte Tracks bringen das alles mit. Es beim Analysieren fallen zu
+    lassen und den Nutzer die Felder von Hand füllen zu lassen, wäre
+    Arbeit für nichts – die Angaben stehen ja in der Datei, die gerade
+    gelesen wurde.
+
+    Was im Ziel schon steht, bleibt: Wer selbst etwas eingetragen hat,
+    soll es behalten.
+    """
+    try:
+        vorhanden = read_tags(quelle)
+    except Exception as exc:
+        LOG.warning("Tags der Quelle nicht lesbar (%s): %s", quelle.name, exc)
+        return
+
+    zu_setzen = {k: vorhanden.get(k, "") for k in UEBERNAHME_FELDER if vorhanden.get(k)}
+    try:
+        cover = read_cover(quelle)
+    except Exception:
+        cover = None
+
+    for ziel in ziele:
+        try:
+            schon_da = read_tags(ziel)
+            neu = {k: v for k, v in zu_setzen.items() if not schon_da.get(k)}
+            if neu:
+                write_tags(ziel, neu)
+            if cover and not schon_da.get("has_cover"):
+                write_cover(ziel, cover[0], cover[1])
+        except Exception as exc:
+            LOG.warning("Tags nicht übertragbar (%s): %s", ziel.name, exc)
+
+
 def tag_folder(folder: Path, analysis: dict, song: str, rename: bool, say: LogFn) -> list[Path]:
     bpm = float(analysis.get("bpm") or 0)
     key_id3 = analysis.get("key_id3") or ""
