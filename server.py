@@ -390,6 +390,10 @@ def analyses() -> JSONResponse:
                 "key_alt": data.get("key_alt") or "",
                 "camelot": data.get("camelot") or "",
                 "key_confidence": data.get("key_confidence") or 0,
+                "energy": data.get("energy") or 0,
+                # Ältere Analysen kennen das Feld nicht – dann aus den
+                # vorhandenen Werten nachrechnen statt eine Lücke zu zeigen.
+                "danceability": data.get("danceability") or 0,
                 "seconds": data.get("seconds_analyzed") or 0,
                 "bars": len(data.get("downbeats") or []),
                 "stems": [postprocess.stem_name(p) for p in stems],

@@ -224,3 +224,26 @@ def test_nur_eine_karte_ist_gleichzeitig_offen(html):
     # Entscheidend ist der Aufruf beim Öffnen aus der Liste.
     assert re.search(r"schliesseAndereKarten\(karte\)", html), \
         "Beim Öffnen einer Karte müssen die anderen weichen"
+
+
+def test_tanzbarkeit_stimmt_mit_dem_analysemodul_ueberein(html):
+    """Die Formel steht zweimal: in analysis.py und in der Oberfläche.
+
+    Das ist Absicht – server.py importiert das Analysemodul nicht, weil es
+    librosa und PyTorch in den Serverstart zöge. Ältere Analysen ohne das
+    Feld rechnet die Oberfläche deshalb selbst nach. Laufen die beiden
+    Fassungen auseinander, zeigt die Liste andere Werte als die Karte.
+    """
+    import analysis
+
+    js = re.search(r"function tanzbarkeit\(.*?\n\}", html, re.S)
+    assert js, "Die Oberfläche braucht die Nachberechnung"
+    quelltext = js.group(0)
+
+    # Die Eckwerte der Formel müssen auf beiden Seiten dieselben sein.
+    for zahl in ("110", "135", "60", "50", "55", "0.35", "0.65", "0.4", "0.6"):
+        assert zahl in quelltext, f"Eckwert {zahl} fehlt in der Oberfläche"
+
+    # Und die Grenzfälle müssen dasselbe ergeben.
+    assert analysis.danceability(0, 8, 0.9) == 1
+    assert analysis.danceability(124, 8, 0.9) >= 7

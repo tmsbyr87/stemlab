@@ -62,6 +62,7 @@ class Analysis:
     key_tonic: str = ""             # "G" – für andere Schreibweisen
     key_mode: str = ""              # "minor"
     energy: int = 0                 # 1–10, wie in Mixed In Key
+    danceability: int = 0           # 1–10, abgeleitet aus Tempo, Energie, Raster
     key_confidence: float = 0.0
     key_alt: str = ""
     beats: list[float] = field(default_factory=list)
@@ -328,16 +329,83 @@ def _energy(y: np.ndarray) -> int:
     onset = librosa.onset.onset_strength(y=y, sr=SAMPLE_RATE)
     dichte = float(np.mean(onset)) if onset.size else 0.0
 
-    # Wie viel Energie steckt im Bass? Vier Sekunden reichen für ein Bild.
+    # Wie viel Energie steckt im Bass? Eine Minute reicht für ein Bild.
     spec = np.abs(librosa.stft(y[: SAMPLE_RATE * 60], n_fft=2048))
     freqs = librosa.fft_frequencies(sr=SAMPLE_RATE, n_fft=2048)
     gesamt = float(spec.sum()) or 1.0
     tief = float(spec[freqs < 250].sum()) / gesamt
 
-    # Beide Anteile auf 1–10 abbilden. Die Faktoren sind an typischer
-    # Clubmusik ausgerichtet und bewusst großzügig geschnitten.
-    wert = dichte / 3.0 * 5.0 + tief * 12.0
+    # Pegel: Ein Track, der leise gemischt ist, drückt weniger. Die Spanne
+    # 0.20–0.36 ist an 12 Clubtracks gemessen; darüber liegt praktisch kein
+    # Material, darunter nur ungemastertes. Ein fester Bezug auf 0.2 wäre
+    # nutzlos – dort liegt jedes moderne Mastering bereits am Anschlag.
+    rms = float(np.sqrt(np.mean(y.astype("float64") ** 2)))
+    pegel = max(0.0, min(1.0, (rms - 0.20) / 0.16))
+
+    # Breite des Spektrums: Ein reiner Sinus hat seine gesamte Energie an
+    # einer Stelle und klingt trotz hohem Bassanteil nicht energetisch. Ohne
+    # diesen Faktor bekam ein leiser 220-Hz-Ton die volle Punktzahl, während
+    # ein druckvoller Technotrack bei 3 lag.
+    # Gemessen als spektrale Entropie: Wie gleichmäßig verteilt sich die
+    # Energie über die Bänder? Ein Dauerton bündelt sie an einer Stelle
+    # (niedrige Entropie), ein voller Mix streut sie (hohe). Ein Schwellwert
+    # auf den Maximalwert taugt dafür nicht – er belohnt gerade das Signal
+    # mit dem flachsten Maximum, also den leisen Sinus mit Rauschteppich.
+    anteile = spec.sum(axis=1) / gesamt
+    anteile = anteile[anteile > 0]
+    entropie = float(-(anteile * np.log(anteile)).sum() / np.log(len(anteile))) if len(anteile) > 1 else 0.0
+    breite = max(0.0, min(1.0, (entropie - 0.35) / 0.45))
+
+    # Die Spannen stammen aus einer Stichprobe echter Clubtracks: Dichte
+    # 1.45–2.51, Bassanteil 0.09–0.55. Wer sie auf 0–1 bezieht statt auf das
+    # tatsächliche Feld, bekommt Werte, die alle gleich aussehen – die erste
+    # Fassung lieferte über zwölf Tracks nur zwei verschiedene Zahlen.
+    druck = max(0.0, min(1.0, (dichte - 1.3) / 1.2))
+    bass = max(0.0, min(1.0, (tief - 0.05) / 0.5))
+
+    # Dichte und Pegel machen den wahrgenommenen Druck aus, Bass und Breite
+    # verstärken ihn. Ein Sockel von 1 sorgt dafür, dass auch ein ruhiger
+    # Track nicht bei null landet.
+    wert = 1.0 + (druck * 3.6 + pegel * 2.6 + bass * 1.6 + breite * 1.2)
     return int(max(1, min(10, round(wert))))
+
+
+def danceability(bpm: float, energy: int, bpm_confidence: float) -> int:
+    """Tanzbarkeit 1 bis 10 – abgeleitet, nicht gemessen.
+
+    Es gibt kein Modell dafür, aber die drei Größen, die es ausmachen, liegen
+    bereits vor: Ein tanzbarer Track läuft in einem Tempo, zu dem man tanzen
+    kann, hat Druck, und sein Taktraster trägt über die ganze Länge. Fällt
+    eines davon weg, ist er nicht tanzbar – ein kraftloser Track im richtigen
+    Tempo so wenig wie ein treibender mit zerfallendem Raster.
+
+    Die Skala ist dieselbe wie bei der Energie, damit beide Werte
+    nebeneinander lesbar sind.
+    """
+    if bpm <= 0:
+        return 1          # ohne Taktraster keine Grundlage
+
+    # Tempo: Das Fenster, in dem getanzt wird, liegt bei rund 110 bis 135 BPM
+    # und fällt zu beiden Seiten ab. Bei 90 oder 160 tanzt man noch, bei 60
+    # oder 200 nicht mehr.
+    if 110 <= bpm <= 135:
+        tempo_passung = 1.0
+    elif bpm < 110:
+        tempo_passung = max(0.0, (bpm - 60) / 50.0)
+    else:
+        tempo_passung = max(0.0, 1.0 - (bpm - 135) / 55.0)
+
+    # Energie: schon auf 1–10 skaliert, hier auf 0–1 gebracht.
+    druck = max(0.0, min(1.0, (energy or 0) / 10.0))
+
+    # Raster: Ein unsicheres Tempo heißt, dass der Beat nicht durchläuft.
+    # Unter 0.5 traut der Code der Schätzung ohnehin nicht (siehe _snap_bpm).
+    halt = max(0.0, min(1.0, bpm_confidence / 0.5))
+
+    # Multiplikativ, nicht additiv: Jeder der drei Faktoren kann für sich
+    # allein den Track untanzbar machen.
+    wert = tempo_passung * (0.35 + 0.65 * druck) * (0.4 + 0.6 * halt)
+    return int(max(1, min(10, round(wert * 10))))
 
 
 # --------------------------------------------------------------------------- #
@@ -488,6 +556,7 @@ def analyze(path: Path, on_log: Callable[[str], None] | None = None) -> Analysis
     for k, v in _key(key_chroma(y, hop).mean(axis=1)).items():
         setattr(result, k, v)
     result.energy = _energy(y)
+    result.danceability = danceability(result.bpm, result.energy, result.bpm_confidence)
     result.chords = _chords(chroma, hop, downbeats, beats, seconds)
     result.chord_sheet = _chord_sheet(result.chords, per_line=4)
     return result
