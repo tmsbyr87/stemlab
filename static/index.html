@@ -1483,19 +1483,22 @@ function buildResult(e, d) {
     const go = el('button', 'btn sm', 'Rechnen'); go.onclick = () => { const bpm = d.analysis && d.analysis.bpm; const ratio = bpm && +bpmIn.value ? (+bpmIn.value / bpm) : 1; run('shift', { semitones: +st.value, tempo: +ratio.toFixed(5), stems: which.value ? [which.value] : [] }, 'Pitch/Tempo gestartet.'); };
     p.append('Halbtöne', st, 'Ziel-Tempo', bpmIn, which, go);
   }));
-  mk('Lyrics', () => toggle('lyrics', (p) => {
-    const lang = el('select'); lang.innerHTML = '<option value="">Sprache automatisch</option><option value="de">Deutsch</option><option value="en">Englisch</option><option value="es">Spanisch</option><option value="fr">Französisch</option><option value="it">Italienisch</option>';
-    const go = el('button', 'btn sm', 'Transkribieren'); go.onclick = () => run('lyrics', { language: lang.value }, 'Whisper gestartet – beim ersten Mal lädt es das Modell.');
-    p.append('Whisper auf dem Vocal-Stem:', lang, go);
-  }));
   mk('Mix exportieren', () => toggle('mix', (p) => {
     const name = el('input'); name.type = 'text'; name.value = 'Mix'; const go = el('button', 'btn sm', 'Exportieren');
     go.onclick = () => run('mix', { gains: mixer.gainsForExport(), label: name.value }, 'Mix-Export gestartet.');
     p.append('Pegel und Stummschaltungen aus dem Mixer:', name, go);
   }));
   const chordsBtn = mk('Akkorde', () => togglePanel(e, '.chords-panel', () => loadChords(e, d)));
-  const lyricsBtn = mk('Text', () => togglePanel(e, '.lyrics-panel', () => loadLyrics(e, d)));
-  lyricsBtn.hidden = !(d.extras || []).some(x => base(x) === 'lyrics.json');
+  // Ein Knopf für den gesungenen Text: Er führt in die rechte Spalte, die
+  // ihn zeigt oder das Transkribieren anbietet. Zwei Knöpfe – einer zum
+  // Erzeugen, einer zum Ansehen – waren eine Trennung, die nur die Technik
+  // kennt.
+  const lyricsBtn = mk('Text', () => {
+    state.infoTrack = d; state.infoReiter = 'text'; renderInfospalte();
+    $('infospalte').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+  // Immer sichtbar: Ohne Text führt der Knopf zum Transkribieren.
+  lyricsBtn.hidden = false;
   chordsBtn.hidden = !(d.extras || []).some(x => base(x) === 'analysis.json');
   // Reine Analysen haben noch keine Stems – die lassen sich hier nachziehen,
   // ohne den Song erneut hochzuladen.
@@ -1957,8 +1960,26 @@ async function reiterText(ziel, d) {
 
   if (!l || !l.segments || !l.segments.length) {
     block.append(Object.assign(el('div'), {
-      textContent: 'Noch kein Text. In der Karte unter „Lyrics“ transkribieren.',
-      style: 'color:var(--muted);font-size:12.5px;line-height:1.5' }));
+      textContent: 'Noch kein Text für diesen Song.',
+      style: 'color:var(--muted);font-size:12.5px;margin-bottom:9px' }));
+    const lang = el('select');
+    lang.innerHTML = '<option value="">Sprache automatisch</option>'
+      + '<option value="de">Deutsch</option><option value="en">Englisch</option>'
+      + '<option value="es">Spanisch</option><option value="fr">Französisch</option>'
+      + '<option value="it">Italienisch</option>';
+    lang.style.cssText = 'width:100%;margin-bottom:7px';
+    const go = el('button', 'btn sm', 'Transkribieren');
+    go.style.width = '100%';
+    go.onclick = async () => {
+      go.disabled = true; go.textContent = 'startet …';
+      try {
+        await api('/api/actions', { kind: 'lyrics', folder: d.folder, params: { language: lang.value } });
+        toast('Whisper gestartet – beim ersten Mal lädt es das Modell.');
+      } catch (err) { toast(err.message, true); go.disabled = false; go.textContent = 'Transkribieren'; }
+    };
+    block.append(lang, go, Object.assign(el('div'), {
+      textContent: 'Läuft auf dem Vocal-Stem, nicht auf dem Mix.',
+      style: 'color:var(--muted);font-size:11px;margin-top:8px' }));
     return;
   }
 

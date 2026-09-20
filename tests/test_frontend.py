@@ -865,3 +865,37 @@ def test_lyrics_bleiben_anklickbar(html):
     fn = re.search(r"function reiterText\(.*?\n\}", html, re.S)
     assert fn, "Der Text-Reiter fehlt"
     assert "seek" in fn.group(0), "Die Zeilen müssen an die Stelle springen"
+
+
+def test_lyrics_und_text_sind_ein_knopf(html):
+    """„Lyrics" transkribierte, „Text" zeigte an – zwei Knöpfe für dieselbe
+    Sache. Das ist eine Trennung, die nur die Technik kennt: Wer den Text
+    eines Songs will, denkt nicht in „erzeugen" und „ansehen".
+
+    Ein Knopf, der beides kann: Ist Text da, zeigt er ihn; fehlt er, bietet
+    er das Transkribieren an.
+    """
+    knoepfe = re.findall(r"mk\('([^']+)'", html)
+    assert "Lyrics" not in knoepfe, "Der zweite Knopf ist überflüssig"
+    assert "Text" in knoepfe, "Ein Knopf für den Text muss bleiben"
+
+    # Er muss sichtbar sein, auch wenn noch kein Text existiert – sonst
+    # käme man gar nicht erst zum Transkribieren.
+    assert re.search(r"lyricsBtn\.hidden = false", html), \
+        "Der Knopf gehört auch ohne vorhandenen Text angezeigt"
+
+    # Und er muss in den Text-Reiter führen, nicht irgendwohin.
+    assert re.search(r"state\.infoReiter = 'text'; renderInfospalte\(\)", html), \
+        "Der Knopf muss den Text-Reiter öffnen"
+
+
+def test_textknopf_bietet_transkription_an_wenn_nichts_da_ist(html):
+    """Ohne Text ist der Reiter nicht leer, sondern führt zum nächsten
+    Schritt – mit der Sprachwahl, die vorher im Lyrics-Aufklapper stand."""
+    fn = re.search(r"async function reiterText\(.*?\n\}", html, re.S)
+    assert fn, "Der Text-Reiter fehlt"
+    assert re.search(r"el\('button', 'btn sm', 'Transkribieren'\)", fn.group(0)), \
+        "Ohne Text muss der Reiter das Transkribieren anbieten"
+    assert "language" in fn.group(0), "Die Sprachwahl gehört dazu"
+    assert re.search(r"kind: 'lyrics'", fn.group(0)), \
+        "Der Knopf muss die Transkription auch starten"
