@@ -108,6 +108,23 @@
   .balken{height:5px;border-radius:999px;background:var(--panel-3);overflow:hidden;margin-top:5px}
   .balken i{display:block;height:100%;border-radius:999px;background:var(--accent)}
   .balken.stark i{background:var(--good)}
+  /* Ein Merkmal je Zeile: links der Name, rechts der Median, darunter ein
+     Band, das Spannweite und Kernbereich zeigt. Eine Zahl allein täuscht
+     Genauigkeit vor, die bei 24 Tracks nicht da ist. */
+  .pz{display:grid;grid-template-columns:130px 1fr 92px;gap:12px;align-items:center;
+      padding:9px 0;border-bottom:1px solid var(--line)}
+  .pz:last-child{border-bottom:0}
+  .pz .nm{font-size:12.5px;color:var(--text-2)}
+  .pz .nm small{display:block;color:var(--muted);font-size:10.5px}
+  .pz .wert{text-align:right;font-weight:650;font-variant-numeric:tabular-nums}
+  .pz .wert small{display:block;font-weight:400;color:var(--muted);font-size:10.5px}
+  .spanne{position:relative;height:8px;border-radius:999px;background:var(--panel-3)}
+  .spanne .kern{position:absolute;top:0;bottom:0;border-radius:999px;background:var(--accent);opacity:.35}
+  .spanne .mitte{position:absolute;top:-2px;bottom:-2px;width:2px;border-radius:2px;background:var(--accent)}
+  .profil-hinweis{margin-top:14px;padding:11px 13px;border-radius:10px;
+                  background:var(--panel-2);border:1px solid var(--line);
+                  color:var(--text-2);font-size:12px;line-height:1.55}
+  .profil-warnung{border-color:var(--warn);background:var(--warn-soft);color:var(--text)}
   .info-block{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
               padding:13px;box-shadow:var(--shadow)}
   @media (max-width:1180px){
@@ -634,6 +651,12 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <div class="card" id="bereich-profil" hidden>
+    <h3>Profil <span class="tag" id="profil-quelle">alle Tracks</span><span class="grow"></span>
+      <button class="quiet sm" id="profil-reload" title="Profil neu berechnen">aktualisieren</button></h3>
+    <div id="profil-inhalt"></div>
   </div>
 
   <footer>Alles bleibt auf diesem Mac. „Beenden" oben rechts stoppt StemLab.</footer>
@@ -2238,6 +2261,112 @@ function renderInfospalte() {
   requestAnimationFrame(richteInfospalteAus);
 }
 
+/* ---------- Profil ----------
+   Was eine Sammlung gemeinsam hat: Tempo, Tonart, Energie, Aufbau – als
+   Verteilung, nicht als einzelne Zahl. Der Kernbereich (mittlere Hälfte)
+   zeigt, wie eng die Sammlung beieinander liegt; die Spannweite die
+   Ränder. Bei 24 Tracks ist "Median 124" ohne diese Angabe irreführend. */
+
+const PROFIL_MERKMALE = [
+  { schluessel: 'tempo',       label: 'Tempo',       einheit: 'BPM' },
+  { schluessel: 'energie',     label: 'Energie',     einheit: '/ 10' },
+  { schluessel: 'tanzbarkeit', label: 'Tanzbarkeit', einheit: '/ 10' },
+  { schluessel: 'takte',       label: 'Länge',       einheit: 'Takte' },
+  { schluessel: 'laenge',      label: 'Spielzeit',   einheit: '', zeit: true },
+];
+
+function profilZeile(m, v, gesamt) {
+  const zeile = el('div', 'pz');
+  const name = el('div', 'nm');
+  name.append(m.label);
+  // Aus wie vielen Tracks stammt dieser Wert? Ältere Analysen kennen
+  // manche Felder nicht – ein Merkmal aus 15 von 24 ist etwas anderes.
+  if (v.anzahl < gesamt) name.append(Object.assign(el('small'), { textContent: `aus ${v.anzahl} von ${gesamt}` }));
+
+  const band = el('div', 'spanne');
+  const weite = Math.max(v.max - v.min, 0.001);
+  const kern = el('i', 'kern');
+  kern.style.left = ((v.q1 - v.min) / weite * 100) + '%';
+  kern.style.width = ((v.q3 - v.q1) / weite * 100) + '%';
+  const mitte = el('i', 'mitte');
+  mitte.style.left = ((v.median - v.min) / weite * 100) + '%';
+  band.append(kern, mitte);
+
+  const wert = el('div', 'wert');
+  wert.append(m.zeit ? fmtTime(v.median) : `${v.median} ${m.einheit}`.trim());
+  wert.append(Object.assign(el('small'), {
+    textContent: m.zeit ? `${fmtTime(v.min)}–${fmtTime(v.max)}` : `${v.min}–${v.max}` }));
+
+  zeile.append(name, band, wert);
+  return zeile;
+}
+
+function zeichneProfil(p) {
+  const ziel = $('profil-inhalt');
+  ziel.innerHTML = '';
+  if (!p || !p.anzahl) {
+    ziel.append(Object.assign(el('div'), {
+      textContent: 'Noch keine Analysen in dieser Auswahl.',
+      style: 'color:var(--muted);font-size:12.5px' }));
+    return;
+  }
+
+  const block = el('div');
+  for (const m of PROFIL_MERKMALE) {
+    const v = p[m.schluessel];
+    if (!v || !v.anzahl) continue;
+    block.append(profilZeile(m, v, p.anzahl));
+  }
+  ziel.append(block);
+
+  // Tonart getrennt: Hier zählt die Häufung, nicht die Spannweite.
+  const t = p.tonart || {};
+  if (t.anzahl) {
+    const zeile = el('div', 'pz');
+    zeile.append(Object.assign(el('div', 'nm'), { textContent: 'Tonart' }));
+    const liste = el('div');
+    liste.style.cssText = 'display:flex;gap:5px;flex-wrap:wrap';
+    for (const [cam, n] of (t.haeufigste || []).slice(0, 5)) {
+      const c = camParse(cam);
+      const chip = el('span', 'cam');
+      if (c) chip.style.background = camColor(c.n, c.mode);
+      chip.textContent = `${cam} · ${n}`;
+      liste.append(chip);
+    }
+    zeile.append(liste);
+    zeile.append(Object.assign(el('div', 'wert'), {
+      innerHTML: `${Math.round(t.moll_anteil * 100)} %<small>Moll</small>` }));
+    ziel.append(zeile);
+  }
+
+  // Zu kleine Gruppen: Unter 15 Tracks sind Verteilungen Zufall.
+  if (!p.belastbar) {
+    ziel.append(Object.assign(el('div', 'profil-hinweis profil-warnung'), {
+      textContent: `Nur ${p.anzahl} ${p.anzahl === 1 ? 'Track' : 'Tracks'}. `
+        + `Unter ${p.mindestgroesse} sind die Werte Zufall – zwei Ausreißer bestimmen dann die Spannweite.` }));
+  }
+
+  // Die Grenze der Aussage gehört sichtbar, nicht in eine Fußnote.
+  ziel.append(Object.assign(el('div', 'profil-hinweis'), {
+    textContent: 'Das Profil zeigt, was diese Tracks gemeinsam haben – nicht, '
+      + 'was sie gut macht. Dieselben Werte hat mittelmäßige Musik desselben '
+      + 'Genres auch. Als Erfolgsformel taugt es nicht; als Beschreibung der '
+      + 'Konvention, in die man sich einfügt oder von der man bewusst abweicht, schon.' }));
+}
+
+async function ladeProfil() {
+  const name = state.playlistFilter;
+  $('profil-quelle').textContent = name || 'alle Tracks';
+  try {
+    const d = await (await fetch('/api/profil' + (name ? '?playlist=' + encodeURIComponent(name) : ''))).json();
+    zeichneProfil(d.profil);
+  } catch (_) {
+    $('profil-inhalt').textContent = 'Profil nicht verfügbar.';
+  }
+}
+
+$('profil-reload').onclick = ladeProfil;
+
 /* ---------- Seitenleiste ----------
    Nur Einträge, die irgendwohin führen. Ein Menüpunkt ohne Ziel ist
    schlimmer als keiner: Er verspricht eine Funktion, die es nicht gibt.
@@ -2249,6 +2378,7 @@ const BEREICHE = [
   // widersinnig.
   { ziel: 'bereich-neu',      label: 'Neuer Track', verlaesst: true },
   { ziel: 'bereich-analysen', label: 'Analysen', zahl: () => state.analyses.length, verlaesst: true },
+  { ziel: 'bereich-profil',   label: 'Profil', verlaesst: true },
   { ziel: 'jobs-card',        label: 'In Arbeit', zahl: () => laufendeJobs(), nurWennGefuellt: true },
 ];
 
@@ -2313,6 +2443,7 @@ function renderSeitenleiste() {
     if (b.zahl) knopf.append(Object.assign(el('span', 'zahl'), { textContent: String(n) }));
     knopf.onclick = () => {
       if (b.verlaesst) verlasseAktuellenSong();
+      if (b.ziel === 'bereich-profil') { $('bereich-profil').hidden = false; ladeProfil(); }
       const ziel = document.getElementById(b.ziel);
       if (ziel) ziel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
@@ -2333,6 +2464,7 @@ function renderSeitenleiste() {
       state.playlistFilter = null; state.nurDieseSitzung = false;
       verlasseAktuellenSong();
       renderSeitenleiste(); renderTable();
+      if (!$('bereich-profil').hidden) ladeProfil();
     };
     nav.append(b);
   }
@@ -2344,6 +2476,7 @@ function renderSeitenleiste() {
       state.nurDieseSitzung = false;
       verlasseAktuellenSong();
       renderSeitenleiste(); renderTable();
+      if (!$('bereich-profil').hidden) ladeProfil();
     };
     b.oncontextmenu = (ev) => {
       ev.preventDefault();

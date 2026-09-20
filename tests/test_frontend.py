@@ -1082,3 +1082,56 @@ def test_aktion_verdraengt_den_offenen_song_nicht(html):
     dem Selbstaufräumen stand man vor gar nichts mehr."""
     assert re.search(r"if \(!AKTIONS_ARTEN\.has\(d\.kind\)\) schliesseAndereKarten\(e\)", html), \
         "Eine Aktion darf die Song-Karte nicht verdrängen"
+
+
+# --------------------------------------------------------------------------- #
+# Profil-Ansicht
+# --------------------------------------------------------------------------- #
+
+def test_profil_hat_einen_eigenen_bereich(html):
+    """Ein Profil gehört nicht zu einem Song, sondern zu einer Sammlung –
+    also neben die Liste, nicht in die Spalte des gewählten Tracks."""
+    assert re.search(r'id="bereich-profil"', html), "Der Bereich fehlt"
+    liste = re.search(r"const BEREICHE = \[(.*?)\];", html, re.S)
+    assert liste and "bereich-profil" in liste.group(1), \
+        "Das Profil braucht einen Eintrag in der Seitenleiste"
+
+
+def test_profil_zeigt_spannweiten_statt_einzelner_zahlen(html):
+    """„Median 124" allein täuscht Genauigkeit vor. Der Kernbereich zeigt,
+    wie eng oder weit die Sammlung streut."""
+    # Die Zeile selbst baut das Band – dort stehen die Quartile.
+    fn = re.search(r"function profilZeile\(.*?\n\}", html, re.S)
+    assert fn, "Die Zeilendarstellung fehlt"
+    for feld in ("median", "q1", "q3", "min", "max"):
+        assert feld in fn.group(0), f"{feld} wird nicht dargestellt"
+    assert re.search(r"function zeichneProfil\(", html), "Die Ansicht fehlt"
+
+
+def test_profil_nennt_die_zahl_der_tracks_je_merkmal(html):
+    """Ältere Analysen kennen manche Felder nicht. Ein Merkmal aus 15 von
+    24 Tracks ist etwas anderes als eines aus allen 24."""
+    fn = re.search(r"function profilZeile\(.*?\n\}", html, re.S)
+    assert fn, "Die Zeilendarstellung fehlt"
+    # Der Vergleich mit der Gesamtzahl muss stattfinden – sonst sieht ein
+    # Merkmal aus 15 Tracks aus wie eines aus 24.
+    assert re.search(r"v\.anzahl < gesamt", fn.group(0)), \
+        "Ein unvollständiges Merkmal muss gekennzeichnet werden"
+    assert re.search(r"aus \$\{v\.anzahl\} von \$\{gesamt\}", fn.group(0)), \
+        "Und zwar mit beiden Zahlen"
+
+
+def test_profil_warnt_bei_zu_kleiner_gruppe(html):
+    """Wer aus fünf Tracks eine Regel liest, irrt sich – das gehört
+    sichtbar, nicht in eine Fußnote."""
+    fn = re.search(r"function zeichneProfil\(.*?\n\}", html, re.S)
+    assert fn and "belastbar" in fn.group(0), \
+        "Die Ansicht muss kleine Gruppen kennzeichnen"
+
+
+def test_profil_sagt_was_es_nicht_ist(html):
+    """Ein Profil beschreibt, was die Tracks gemeinsam haben – nicht, was
+    sie gut macht. Ohne diesen Hinweis liest man eine Erfolgsformel
+    hinein, die keine ist."""
+    assert re.search(r"nicht.{0,40}(Erfolg|Hitformel|gut macht)", html, re.S | re.I), \
+        "Die Ansicht muss ihre eigene Grenze benennen"
