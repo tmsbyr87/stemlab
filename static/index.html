@@ -114,6 +114,12 @@
   /* Arrangement: eine Zeile je Stem über der Zeit, darüber Taktleiste und
      Abschnitte. Der Aufbau folgt dem, was Produzenten aus ihrer DAW kennen –
      links die Namen, rechts die Spuren auf gemeinsamer Zeitachse. */
+  .arrangement-panel .arr{grid-template-columns:96px 1fr;font-size:12px}
+  .arrangement-panel .arr .spur{height:34px}
+  .arrangement-panel .arr .abschnitte{height:24px}
+  .arrangement-panel .arr .abschnitte u{font-size:11px;padding:0 7px}
+  .arrangement-panel .arr .kopf{height:18px}
+  .arrangement-panel .arr .kopf span{font-size:10.5px}
   .arr{display:grid;grid-template-columns:76px 1fr;gap:0 8px;font-size:11px}
   .arr .kopf{grid-column:2;position:relative;height:16px;border-bottom:1px solid var(--line)}
   .arr .kopf i{position:absolute;top:0;bottom:0;width:1px;background:var(--line-2)}
@@ -1492,7 +1498,8 @@ function jobCard(d) {
   e.innerHTML = `<div class="head"><div style="min-width:0"><div class="name"></div><div class="meta"></div></div><div class="state"></div></div>
     <div class="facts" hidden></div><div class="bar-p"><i></i></div><div class="log"></div>
     <div class="mixer" hidden></div><div class="files" hidden></div><div class="actions" hidden></div><div class="popover"></div>
-    <div class="panel chords-panel"></div><div class="panel tags-panel"></div><div class="panel lyrics-panel"></div>`;
+    <div class="panel chords-panel"></div><div class="panel tags-panel"></div><div class="panel lyrics-panel"></div>
+    <div class="panel arrangement-panel"></div>`;
   $('jobs').prepend(e); state.jobs.set(d.id, e); $('jobs-card').hidden = false;
   return e;
 }
@@ -1602,6 +1609,10 @@ function buildResult(e, d) {
     go.onclick = () => run('mix', { gains: mixer.gainsForExport(), label: name.value }, 'Mix-Export gestartet.');
     p.append('Pegel und Stummschaltungen aus dem Mixer:', name, go);
   }));
+  // Der Aufbau gehört in die Karte, nicht in die schmale Infospalte: Bei
+  // sieben Spuren bleibt dort je 22 px Höhe, und ein Takt wäre keine zwei
+  // Pixel breit. Struktur sieht man so nicht.
+  mk('Aufbau', () => togglePanel(e, '.arrangement-panel', () => zeichneArrangement(e.querySelector('.arrangement-panel'), d)));
   const chordsBtn = mk('Akkorde', () => togglePanel(e, '.chords-panel', () => loadChords(e, d)));
   // Ein Knopf für den gesungenen Text: Er führt in die rechte Spalte, die
   // ihn zeigt oder das Transkribieren anbietet. Zwei Knöpfe – einer zum
@@ -2010,7 +2021,6 @@ const REITER = [
   { schluessel: 'tags',    label: 'Tags' },
   { schluessel: 'export',  label: 'Export' },
   { schluessel: 'text',    label: 'Text' },
-  { schluessel: 'arrangement', label: 'Aufbau' },
 ];
 
 state.infoReiter = 'analyse';
@@ -2219,7 +2229,9 @@ async function zeichneArrangement(ziel, d) {
     const spur = el('div', 'spur');
     spur.style.setProperty('--sc', COLOR[stem] || 'var(--muted)');
     const hoechst = Math.max(...werte) || 1;
-    const n = Math.min(werte.length, 240);      // mehr als 240 Balken sieht niemand
+    // In der Karte ist Platz für mehr Balken als in einer schmalen Spalte.
+    const breite = spur.clientWidth || ziel.clientWidth || 600;
+    const n = Math.min(werte.length, Math.max(120, Math.round(breite / 3)));
     for (let i = 0; i < n; i++) {
       const wert = werte[Math.floor(i / n * werte.length)];
       const balken = el('b');
@@ -2411,7 +2423,6 @@ function renderInfospalte() {
   if (state.infoReiter === 'analyse') reiterAnalyse(inhalt, d);
   else if (state.infoReiter === 'tags') reiterTags(inhalt, d);
   else if (state.infoReiter === 'text') reiterText(inhalt, d);
-  else if (state.infoReiter === 'arrangement') zeichneArrangement(inhalt, d);
   else reiterExport(inhalt, d);
   spalte.append(inhalt);
   notizfeld(spalte, d);

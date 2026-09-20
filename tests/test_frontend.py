@@ -1249,7 +1249,40 @@ def test_arrangement_ist_anklickbar(html):
         "Ein Klick auf einen Abschnitt ebenso"
 
 
-def test_arrangement_steht_als_reiter_bereit(html):
+def test_arrangement_steht_in_der_karte(html):
+    """In der 300 px breiten Infospalte ist das Arrangement unlesbar: Bei
+    sieben Spuren bleiben je 22 px Höhe und eine Zeitachse, auf der ein
+    Takt weniger als zwei Pixel breit ist.
+
+    Es gehört dorthin, wo der Track selbst steht – in die Karte, über die
+    volle Breite der Arbeitsfläche.
+    """
+    # Die Karte wird im Skript aufgebaut, nicht im Markup.
+    assert re.search(r'panel arrangement-panel', html), \
+        "Die Karte braucht einen Bereich für das Arrangement"
+    # Und einen Knopf, der genau diesen Bereich öffnet – nicht irgendeinen.
+    knopf = re.search(r"mk\('Aufbau', \(\) => togglePanel\(e, '([^']+)'", html)
+    assert knopf, "Der Aufbau gehört zu den Aktionen der Karte"
+    assert knopf.group(1) == ".arrangement-panel", \
+        f"Der Knopf öffnet {knopf.group(1)} statt des Arrangements"
+
+
+def test_arrangement_nicht_mehr_in_der_schmalen_spalte(html):
+    """Zwei Fassungen derselben Ansicht würden auseinanderlaufen."""
     liste = re.search(r"const REITER = \[(.*?)\];", html, re.S)
-    assert liste and "'arrangement'" in liste.group(1), \
-        "Das Arrangement braucht einen eigenen Reiter"
+    assert liste and "'arrangement'" not in liste.group(1), \
+        "Das Arrangement gehört nicht mehr in die Reiter der Infospalte"
+
+
+def test_arrangement_nutzt_die_volle_breite(html):
+    """Ein Takt braucht Platz, sonst sieht man keine Struktur."""
+    # In der Karte ist Platz – die Zeilen sind höher als in der Spalte.
+    regel = re.search(r"\.arrangement-panel \.arr \.spur\{height:(\d+)px\}", html)
+    assert regel and int(regel.group(1)) > 22, \
+        "In der Karte gehören die Zeilen höher als in der schmalen Spalte"
+
+    # Und die Zahl der Balken richtet sich nach der verfügbaren Breite:
+    # Eine feste Zahl wäre in der Karte zu grob und in der Spalte zu fein.
+    assert re.search(r"const n = Math\.min\(werte\.length, Math\.max\(\d+, "
+                     r"Math\.round\(breite / \d+\)\)\)", html), \
+        "Die Auflösung muss sich nach der Breite richten"
