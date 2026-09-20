@@ -82,13 +82,15 @@ Keine zyklischen Importe. Die Richtung ist durchgehend sauber: `server` oben,
 
 ```
 [TESTED]   analysis.py      → test_tempo, test_key, test_formats
-[TESTED]   postprocess.py   → test_tags, test_export, test_settings, test_lyrics, test_formats
+[TESTED]   postprocess.py   → test_tags, test_export, test_settings, test_lyrics,
+                              test_formats, test_audio_loops, test_audio_mix,
+                              test_audio_refine
 [TESTED]   server.py        → test_api (TestClient)
 [TESTED]   static/index.html→ test_frontend (statische Prüfungen)
 [TESTED]   engine.py        → test_engine, test_engine_runtime, test_engine_ffmpeg
 ```
 
-Alle 5 Module haben Tests. engine.py liegt bei 70 % Zeilenabdeckung;
+Alle 5 Module haben Tests. engine.py liegt bei 70 %, postprocess.py bei 93 % Zeilenabdeckung;
 nicht abgedeckt sind analyze_only und separate, die analysis und
 postprocess orchestrieren und über test_api an der Kante geprüft sind,
 sowie einzelne Zeilen, die torch oder einen Hintergrund-Thread brauchen.
@@ -103,10 +105,14 @@ deshalb läuft die CI ohne PyTorch.
 ## Concerns
 
 ```
-[LARGE]     postprocess.py 1100 Z. · static/index.html 1609 Z. ·
+[LARGE]     static/index.html 1609 Z. · postprocess.py 1100 Z. ·
             server.py 849 Z. – jeweils deutlich über 300 Zeilen.
-[MIXED]     postprocess.py bündelt Tags, DJ-Export, Audiobearbeitung
-            und Lyrics in einem Modul.
+[GEPRUEFT]  postprocess.py bündelt vier Themen, bleibt aber bewusst
+            ein Modul: kein Thema über 241 Zeilen, und stem_files /
+            stem_name werden 23-mal aus allen Themen gerufen. Eine
+            Aufteilung ergäbe fünf Dateien mit derselben Kopplung.
+            Begründung und Kriterien für eine Neubewertung in
+            .planning/ENTSCHEIDUNG-postprocess-aufteilung.md.
 [CRUFT]     _to_delete/ enthält alte Server- und HTML-Stände
             (server.v3.py, index.v3/v4/new.html). Untracked und
             in .gitignore, aber im Arbeitsverzeichnis.
