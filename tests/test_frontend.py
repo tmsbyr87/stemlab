@@ -555,7 +555,9 @@ def test_bedienelemente_teilen_sich_eine_hoehe(html):
     # der Ausdruck die Sammelregel selbst und besteht immer.
     sammel = re.search(r"([^\n]*\.bar[^\n]*)\{height:var\(--h-ctl\)\}", html)
     assert sammel, "Die gemeinsame Höhe wird nirgends zugewiesen"
-    for teil in (".bar button", ".bar .seg", ".bar .pick-btn"):
+    # "> button": nur die Knöpfe der Leiste selbst, nicht die in Gruppen –
+    # letztere würden ihre Umrandung sprengen.
+    for teil in (".bar > button", ".bar .seg", ".bar .pick-btn"):
         assert teil in sammel.group(1), f"{teil} fehlt in der gemeinsamen Höhe"
 
     # Die Icon-Knöpfe sind quadratisch und nutzen dieselbe Größe.
@@ -700,3 +702,47 @@ def test_einzelne_spur_ohne_stem_hinweis(html):
     es bei einer Spur nicht gibt."""
     assert re.search(r"hinweis[^\n]*hidden = nurEineSpur|nurEineSpur[^\n]*hinweis", html), \
         "Der Hinweis auf die Einzelspur-Wiedergabe gehört weg"
+
+
+def test_knoepfe_in_gruppen_sprengen_ihre_umrandung_nicht(html):
+    """Ein Knopf innerhalb einer Segment-Gruppe darf nicht so hoch sein wie
+    die Gruppe selbst – sonst ragt er unten aus der Umrandung heraus.
+
+    Genau das passierte: Die Sammelregel für die Werkzeugleiste gab allen
+    Knöpfen die volle Höhe, auch denen in der Gruppe, und eine ältere
+    Regel setzte zusätzlich min-height.
+    """
+    modus = re.search(r"#mode button\{([^}]*)\}", html)
+    if modus:
+        assert "min-height:38px" not in modus.group(1), \
+            "Die feste Mindesthöhe sprengt die Gruppe"
+
+    # Die Sammelregel darf Knöpfe in Gruppen nicht erfassen.
+    assert re.search(r"\.bar > button|\.bar button:not\(\.seg button\)|\.seg button\{height:auto", html), \
+        "Knöpfe in Gruppen brauchen eine Ausnahme von der gemeinsamen Höhe"
+
+
+def test_einstellungen_steht_bei_den_anderen_icons(html):
+    """Einstellungen, Erscheinungsbild und Beenden gehören zusammen: Sie
+    betreffen das Programm, nicht den einzelnen Song. Unten bei den
+    Werkzeugen für den Track stand es fehl am Platz."""
+    kopf = re.search(r'<div class="pills">(.*?)</div>', html, re.S)
+    assert kopf, "Die Kopfzeile nicht gefunden"
+    assert re.search(r'id="open-settings"', kopf.group(1)), \
+        "Einstellungen gehören in die Kopfzeile"
+    assert kopf.group(1).count("<svg") >= 3, "Alle drei brauchen ein Icon"
+
+
+def test_einstellungen_bleibt_benannt(html):
+    """Ohne Beschriftung braucht auch dieser Knopf einen Namen."""
+    knopf = re.search(r'<button[^>]*id="open-settings"[^>]*>', html)
+    assert knopf and "aria-label=" in knopf.group(0) and "title=" in knopf.group(0)
+
+
+def test_werkzeugleiste_bricht_erst_um_wenn_es_noetig_ist(html):
+    """Der Modell-Wähler ist das breiteste Element und darf schrumpfen.
+    Ohne das rutscht ein einzelner kleiner Knopf in eine zweite Zeile,
+    während neben dem Wähler noch Platz wäre."""
+    regel = re.search(r"\.picker\{([^}]*)\}", html)
+    assert regel and "min-width" in regel.group(1), \
+        "Der Wähler braucht eine Untergrenze, damit er schrumpfen darf"

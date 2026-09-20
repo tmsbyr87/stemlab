@@ -142,7 +142,7 @@
   /* Die Elemente der Werkzeugleiste teilen sich eine Höhe. Knöpfe in
      Aufklappern und Karten bleiben davon unberührt – dort zählt Dichte
      mehr als eine durchgehende Linie. */
-  .bar button,.bar .seg,.bar .picker,.bar .pick-btn{height:var(--h-ctl)}
+  .bar > button,.bar .seg,.bar .picker,.bar .pick-btn{height:var(--h-ctl)}
   button:active{transform:translateY(1px)}
   .btn{background:var(--accent);color:#fff;box-shadow:0 1px 0 rgba(0,0,0,.08),0 6px 16px -8px var(--accent)}
   .btn:hover{background:var(--accent-2)}
@@ -192,12 +192,17 @@
 
   /* Der Modus steht vor allem anderen: erst entscheiden, was passieren soll. */
   #mode{flex:none}
-  #mode button{padding:6px 13px;min-height:38px}
+  /* Kein min-height: Der Knopf füllt die Gruppe von innen aus, statt sie
+     zu sprengen. Die Höhe gibt .seg vor. */
+  #mode button{padding:6px 13px}
   .only-split{display:contents}
   .only-split[hidden]{display:none}
   @media (max-width:620px){ #mode{width:100%} #mode button{flex:1} }
 
-  .picker{position:relative}
+  /* Der Modell-Wähler ist das breiteste Element der Leiste und darf als
+     einziges schrumpfen. Sonst rutscht ein kleiner Knopf allein in eine
+     zweite Zeile, während oben Platz frei bliebe. */
+  .picker{position:relative;min-width:200px}
   .pick-btn{width:100%;height:var(--h-ctl);box-sizing:border-box;display:flex;align-items:center;gap:10px;
             text-align:left;background:var(--panel-2);border:1px solid var(--line-2);color:var(--text);
             padding:4px 11px;border-radius:10px;font-weight:600}
@@ -535,6 +540,7 @@
     <div class="pills">
       <span class="pill" id="queue-pill" hidden><i></i><span id="queue-text"></span></span>
       <span class="pill" id="device-pill"><i></i><span id="device-text">verbinde …</span></span>
+      <button class="quiet ikon" id="open-settings" aria-label="Einstellungen öffnen" title="Einstellungen: Tags, Tonart, Tempo, Dateinamen und Zielordner"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="2.3" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.5v1.8M8 12.7v1.8M14.5 8h-1.8M3.3 8H1.5M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3M12.6 12.6l-1.3-1.3M4.7 4.7L3.4 3.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
       <button class="quiet ikon" id="theme-btn" aria-label="Erscheinungsbild wechseln" title="Erscheinungsbild: hell, dunkel oder wie im System"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.2" stroke="currentColor" stroke-width="1.6"/><path d="M8 2.8a5.2 5.2 0 0 0 0 10.4z" fill="currentColor"/></svg></button>
       <button class="quiet ikon" id="quit" aria-label="StemLab beenden" title="StemLab beenden – der Server wird gestoppt"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M4.6 4.6a4.8 4.8 0 1 0 6.8 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
     </div>
@@ -570,7 +576,6 @@
       <div class="seg" id="format"><button data-v="wav" class="on">WAV</button><button data-v="flac">FLAC</button><button data-v="mp3">MP3</button></div>
       <button class="ghost sm" id="toggle-grid" title="Alle Modelle mit vollständigen Angaben nebeneinander">Alle Modelle</button>
       <span class="tag" id="mode-hint" hidden>Tempo, Tonart und Akkorde – ohne Stems</span>
-      <button class="ghost sm" id="toggle-options" title="Tags, Tonart, Tempo, Dateinamen und Zielordner">Einstellungen</button>
       <span class="tag" id="catalog-tag" hidden></span>
     </div>
     <div class="models" id="models"></div>
@@ -1354,7 +1359,7 @@ $('pick-btn').onclick = (e) => { e.stopPropagation(); state.menuOpen ? closeMenu
 document.addEventListener('click', (e) => { if (state.menuOpen && !$('model-picker').contains(e.target)) closeMenu(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.menuOpen) closeMenu(); });
 $('toggle-grid').onclick = () => { const g = $('models'); g.classList.toggle('show'); $('toggle-grid').classList.toggle('on', g.classList.contains('show')); };
-$('toggle-options').onclick = oeffneEinstellungen;
+$('open-settings').onclick = oeffneEinstellungen;
 $('set-close').onclick = schliesseEinstellungen;
 // Klick auf den abgedunkelten Rand schließt, ein Klick im Dialog nicht.
 $('set-lb').onclick = (ev) => { if (ev.target === $('set-lb')) schliesseEinstellungen(); };
