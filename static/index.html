@@ -74,7 +74,29 @@
   .seitenleiste button:hover{background:var(--panel-2);color:var(--text)}
   .seitenleiste button.on{background:var(--accent-soft);color:var(--accent-2);font-weight:600}
   .seitenleiste .zahl{margin-left:auto;font-size:11px;color:var(--muted)}
-  .infospalte{position:sticky;top:18px;display:flex;flex-direction:column;gap:12px}
+  .infospalte{position:sticky;top:18px;display:flex;flex-direction:column;gap:12px;
+              max-height:calc(100vh - 36px);overflow:auto}
+  .info-kopf{font-weight:650;font-size:13px;line-height:1.35}
+  .info-kopf small{display:block;color:var(--muted);font-weight:400;font-size:11.5px;
+                   margin-top:2px;word-break:break-all}
+  .reiter{display:flex;gap:2px;background:var(--panel-2);border:1px solid var(--line);
+          border-radius:10px;padding:3px;margin-bottom:2px}
+  .reiter button{flex:1;padding:5px 8px;border:0;border-radius:7px;background:transparent;
+                 color:var(--text-2);font:inherit;font-size:12px;cursor:pointer}
+  .reiter button.on{background:var(--panel);color:var(--text);font-weight:600;
+                    box-shadow:var(--shadow)}
+  .info-zeile{display:flex;align-items:center;justify-content:space-between;gap:10px;
+              padding:7px 0;border-bottom:1px solid var(--line)}
+  .info-zeile:last-child{border-bottom:0}
+  .info-zeile .k{color:var(--muted);font-size:11.5px}
+  .info-zeile .v{font-weight:650;font-variant-numeric:tabular-nums}
+  /* Energie und Tanzbarkeit liegen beide auf 1–10. Als Balken nebeneinander
+     sind sie vergleichbar, als Ziffern nicht. */
+  .balken{height:5px;border-radius:999px;background:var(--panel-3);overflow:hidden;margin-top:5px}
+  .balken i{display:block;height:100%;border-radius:999px;background:var(--accent)}
+  .balken.stark i{background:var(--good)}
+  .info-block{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+              padding:13px;box-shadow:var(--shadow)}
   @media (max-width:1180px){
     .shell{grid-template-columns:1fr;max-width:1060px}
     .seitenleiste{position:static;flex-direction:row;flex-wrap:wrap;align-items:center}
@@ -839,6 +861,7 @@ async function openAnalysis(a) {
     renderJob(d);
     const karte = state.jobs.get(d.id);
     if (karte) { karte.dataset.gewaehlt = '1'; schliesseAndereKarten(karte); }
+    state.infoTrack = d; renderInfospalte();
     renderTable();
     flash(karte);
   } catch (err) { toast('Konnte die Analyse nicht öffnen.', true); }
@@ -1710,6 +1733,158 @@ function fileRow(path) {
   row.append(n, play, seek, time, fin); return row;
 }
 
+/* ---------- Rechte Spalte ----------
+   Alles zum gewählten Track an einer Stelle. Die Bausteine gab es schon,
+   sie steckten nur in Aufklappern verteilt über die Karte: Die Analysewerte
+   standen als Kacheln obendrauf, Tags und Cover hinter einem Knopf, die
+   Exporte hinter dem nächsten. */
+
+const REITER = [
+  { schluessel: 'analyse', label: 'Analyse' },
+  { schluessel: 'tags',    label: 'Tags' },
+  { schluessel: 'export',  label: 'Export' },
+];
+
+state.infoReiter = 'analyse';
+state.infoTrack = null;
+
+function zeileMitBalken(name, wert, maximum = 10) {
+  const box = el('div');
+  const zeile = el('div', 'info-zeile');
+  zeile.append(Object.assign(el('span', 'k'), { textContent: name }),
+               Object.assign(el('span', 'v'), { textContent: `${wert} / ${maximum}` }));
+  const balken = el('div', 'balken' + (wert >= maximum * 0.7 ? ' stark' : ''));
+  const fuellung = el('i'); fuellung.style.width = Math.round(wert / maximum * 100) + '%';
+  balken.append(fuellung); box.append(zeile, balken);
+  return box;
+}
+
+function reiterAnalyse(ziel, d) {
+  const a = (d && d.analysis) || {};
+  const block = el('div', 'info-block');
+  const paare = [
+    ['Tonart', a.key_de || '–'],
+    ['Camelot', a.camelot || '–'],
+    ['Tempo', a.bpm ? `${a.bpm} BPM` : '–'],
+    ['Takte', a.downbeats ? `${a.downbeats} · ${a.beats_per_bar || 4}/4` : '–'],
+    ['Länge', a.seconds_analyzed ? fmtTime(a.seconds_analyzed) : '–'],
+  ];
+  for (const [k, v] of paare) {
+    const z = el('div', 'info-zeile');
+    z.append(Object.assign(el('span', 'k'), { textContent: k }),
+             Object.assign(el('span', 'v'), { textContent: v }));
+    block.append(z);
+  }
+  ziel.append(block);
+
+  // Energie und Tanzbarkeit teilen sich die Skala 1–10. Ältere Analysen
+  // kennen die Tanzbarkeit nicht – für die rechnet die Oberfläche nach.
+  if (a.energy) {
+    const tanz = a.danceability || tanzbarkeit(a.bpm, a.energy, a.bpm_confidence);
+    const block2 = el('div', 'info-block');
+    block2.append(zeileMitBalken('Energie', a.energy), zeileMitBalken('Tanzbarkeit', tanz));
+    ziel.append(block2);
+  }
+}
+
+function reiterHinweis(ziel, text) {
+  const block = el('div', 'info-block');
+  block.append(Object.assign(el('div'), {
+    textContent: text, style: 'color:var(--muted);font-size:12.5px' }));
+  ziel.append(block);
+}
+
+/* Tags und Export öffnen die Panels, die es in der Karte schon gibt. Die
+   Bearbeitung dort ist gewachsen und erprobt – sie hier ein zweites Mal zu
+   bauen hieße, zwei Fassungen zu pflegen, die auseinanderlaufen. Die rechte
+   Spalte zeigt den Stand und führt hin. */
+
+function karteZu(d) {
+  return state.jobs.get(d.id) || [...state.jobs.values()].find(c => c.dataset.folder === d.folder);
+}
+
+function knopfInDerKarte(d, beschriftung) {
+  const karte = karteZu(d);
+  if (!karte) return null;
+  return [...karte.querySelectorAll('.actions button')]
+    .find(b => b.textContent.trim().startsWith(beschriftung)) || null;
+}
+
+function reiterTags(ziel, d) {
+  const block = el('div', 'info-block');
+  const dateien = tagTargets(d);
+  const z = el('div', 'info-zeile');
+  z.append(Object.assign(el('span', 'k'), { textContent: 'Dateien mit Tags' }),
+           Object.assign(el('span', 'v'), { textContent: String(dateien.length) }));
+  block.append(z);
+
+  const knopf = el('button', 'btn sm', 'Tags & Cover bearbeiten');
+  knopf.style.marginTop = '10px'; knopf.style.width = '100%';
+  knopf.onclick = () => {
+    const inKarte = knopfInDerKarte(d, 'Tags & Cover');
+    if (inKarte) { inKarte.click(); inKarte.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    else toast('Öffne den Track in der Liste, um die Tags zu bearbeiten.', true);
+  };
+  block.append(knopf);
+  ziel.append(block);
+}
+
+function reiterExport(ziel, d) {
+  const block = el('div', 'info-block');
+  const vorhanden = d.sub || {};
+  const zeilen = [
+    ['Loops', (vorhanden.loops || []).length],
+    ['Mixe', (vorhanden.mixes || []).length],
+    ['Verschoben', (vorhanden.shifted || []).length],
+    ['Vocals veredelt', (vorhanden.refined || []).length],
+  ];
+  for (const [name, n] of zeilen) {
+    const z = el('div', 'info-zeile');
+    z.append(Object.assign(el('span', 'k'), { textContent: name }),
+             Object.assign(el('span', 'v'), { textContent: n ? String(n) : '–' }));
+    block.append(z);
+  }
+  ziel.append(block);
+
+  const aktionen = el('div', 'info-block');
+  for (const name of ['DJ-Export', 'Loops', 'Mix exportieren', 'Pitch / Tempo']) {
+    const inKarte = knopfInDerKarte(d, name);
+    if (!inKarte) continue;
+    const b = el('button', 'ghost sm', name);
+    b.style.width = '100%'; b.style.marginBottom = '5px';
+    b.onclick = () => { inKarte.click(); inKarte.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+    aktionen.append(b);
+  }
+  if (aktionen.children.length) ziel.append(aktionen);
+  else reiterHinweis(ziel, 'Öffne den Track in der Liste, um zu exportieren.');
+}
+
+function renderInfospalte() {
+  const spalte = $('infospalte');
+  const d = state.infoTrack;
+  document.querySelector('.shell').classList.toggle('hat-auswahl', !!d);
+  spalte.innerHTML = '';
+  if (!d) return;
+
+  const kopf = el('div', 'info-block');
+  kopf.append(Object.assign(el('div', 'info-kopf'), { textContent: d.display_name || d.folder.split('/').pop() }));
+  spalte.append(kopf);
+
+  const leiste = el('div', 'reiter');
+  for (const r of REITER) {
+    const b = el('button', state.infoReiter === r.schluessel ? 'on' : null, r.label);
+    b.onclick = () => { state.infoReiter = r.schluessel; renderInfospalte(); };
+    leiste.append(b);
+  }
+  spalte.append(leiste);
+
+  const inhalt = el('div');
+  if (state.infoReiter === 'analyse') reiterAnalyse(inhalt, d);
+  else if (state.infoReiter === 'tags') reiterTags(inhalt, d);
+  else reiterExport(inhalt, d);
+  spalte.append(inhalt);
+}
+
 /* ---------- Seitenleiste ----------
    Nur Einträge, die irgendwohin führen. Ein Menüpunkt ohne Ziel ist
    schlimmer als keiner: Er verspricht eine Funktion, die es nicht gibt.
@@ -1772,6 +1947,7 @@ $('theme-btn').onclick = () => {
 
 themeSetzen(themeLesen());
 renderSeitenleiste();
+renderInfospalte();
 
 /* ---------- Ereignisse, Upload, Einstellungen ---------- */
 function connect() {

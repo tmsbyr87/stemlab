@@ -340,3 +340,55 @@ def test_infospalte_beansprucht_leer_keinen_platz(html):
     machen."""
     assert re.search(r"\.shell:not\(\.hat-auswahl\)\{grid-template-columns:200px minmax\(0,1fr\)\}", html)
     assert re.search(r"\.shell:not\(\.hat-auswahl\) \.infospalte\{display:none\}", html)
+
+
+# --------------------------------------------------------------------------- #
+# Rechte Spalte: Analyse, Tags, Export
+# --------------------------------------------------------------------------- #
+
+def test_infospalte_hat_drei_reiter(html):
+    """Alles zum gewählten Track an einer Stelle, statt in Aufklappern
+    verteilt über die Karte."""
+    liste = re.search(r"const REITER = \[(.*?)\];", html, re.S)
+    assert liste, "Die Reiterliste fehlt"
+    for schluessel in ("'analyse'", "'tags'", "'export'"):
+        assert schluessel in liste.group(1), f"Reiter {schluessel} fehlt"
+
+
+def test_infospalte_zeigt_die_analysewerte(html):
+    """Tonart, Tempo, Takte, Energie und Tanzbarkeit – die Werte, die ein
+    DJ vor dem Auflegen braucht."""
+    fn = re.search(r"function reiterAnalyse\(.*?\n\}", html, re.S)
+    assert fn, "Der Analyse-Reiter fehlt"
+    # Und er muss auch gerufen werden – eine tote Funktion zeigt nichts.
+    assert re.search(r"state\.infoReiter === 'analyse'\) reiterAnalyse\(", html), \
+        "reiterAnalyse muss für den Analyse-Reiter aufgerufen werden"
+    quelle = fn.group(0)
+    for feld in ("camelot", "bpm", "key_de", "energy"):
+        assert feld in quelle, f"{feld} wird nicht angezeigt"
+    # Die Tanzbarkeit kommt aus dem Feld oder wird nachgerechnet.
+    assert "danceability" in quelle and "tanzbarkeit(" in quelle
+
+
+def test_infospalte_zeigt_energie_und_tanzbarkeit_als_balken(html):
+    """Zwei Zahlen auf derselben Skala 1–10 lassen sich als Balken
+    vergleichen, als Ziffern nicht."""
+    assert re.search(r"\.balken\{", html), "Die Balken-Darstellung fehlt"
+
+
+def test_infospalte_wird_nur_mit_auswahl_gezeigt(html):
+    """Ohne gewählten Track hat die Spalte nichts zu sagen."""
+    assert re.search(r"classList\.toggle\('hat-auswahl', !!d\)", html), \
+        "Die Spalte darf nur erscheinen, wenn tatsächlich ein Track gewählt ist"
+
+
+def test_tags_reiter_kennt_dieselben_felder_wie_der_server(html):
+    """Wie schon für die Lightbox geprüft: Die Feldliste darf nicht
+    auseinanderlaufen."""
+    import postprocess
+
+    liste = re.search(r"const TAG_LABELS = \[(.*?)\];", html, re.S)
+    assert liste, "Die Feldliste fehlt"
+    felder = set(re.findall(r"\['([a-z]+)',", liste.group(1)))
+    assert felder == set(postprocess.TAG_FIELDS), \
+        f"Oberfläche und Server sind uneins: {felder ^ set(postprocess.TAG_FIELDS)}"
