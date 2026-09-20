@@ -1509,6 +1509,11 @@ function renderJob(d) {
   // ihre Karte mit Player, Akkorden und dem Knopf zum Trennen.
   e.dataset.status = d.status || '';
   state.jobDaten.set(d.id, d);
+  // Die Seitenleiste zählt, was rechnet – also muss sie bei jedem
+  // Job-Ereignis nachziehen. Vorher hing sie an renderTable(), das
+  // während einer Trennung nie läuft: "In Arbeit" erschien genau dann
+  // nicht, wenn es gebraucht wurde.
+  renderSeitenleiste();
   const hatInhalt = d.files.length || (d.extras || []).some(x => base(x) === 'original.wav');
   if (d.status === 'done' && hatInhalt && !e.dataset.filled) {
     e.dataset.filled = '1';

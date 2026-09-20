@@ -1135,3 +1135,14 @@ def test_profil_sagt_was_es_nicht_ist(html):
     hinein, die keine ist."""
     assert re.search(r"nicht.{0,40}(Erfolg|Hitformel|gut macht)", html, re.S | re.I), \
         "Die Ansicht muss ihre eigene Grenze benennen"
+
+
+def test_seitenleiste_folgt_dem_laufenden_job(html):
+    """„In Arbeit" erschien erst, wenn zufällig die Tabelle neu gezeichnet
+    wurde. Während einer Trennung kommen aber nur Job-Ereignisse – der
+    Eintrag fehlte also genau dann, wenn er gebraucht wird.
+    """
+    fn = re.search(r"function renderJob\(.*?\n\}", html, re.S)
+    assert fn, "renderJob nicht gefunden"
+    assert "renderSeitenleiste()" in fn.group(0), \
+        "Die Seitenleiste muss bei jedem Job-Ereignis nachziehen"
