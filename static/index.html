@@ -2213,8 +2213,11 @@ function renderInfospalte() {
    Die Playlists kommen in Phase 4 dazu, wenn sie etwas können. */
 
 const BEREICHE = [
-  { ziel: 'bereich-neu',      label: 'Neuer Track' },
-  { ziel: 'bereich-analysen', label: 'Analysen', zahl: () => state.analyses.length },
+  // verlaesst: Wer hierher wechselt, ist mit dem offenen Song fertig.
+  // "In Arbeit" zeigt gerade dessen laufende Karten – dort wäre Aufräumen
+  // widersinnig.
+  { ziel: 'bereich-neu',      label: 'Neuer Track', verlaesst: true },
+  { ziel: 'bereich-analysen', label: 'Analysen', zahl: () => state.analyses.length, verlaesst: true },
   { ziel: 'jobs-card',        label: 'In Arbeit', zahl: () => state.jobs.size, nurWennGefuellt: true },
 ];
 
@@ -2234,6 +2237,28 @@ async function playlistAktion(aktion, name, folder) {
   } catch (err) { toast(err.message, true); }
 }
 
+/* Ein Wechsel links heißt: Der Song, mit dem ich gerade gearbeitet habe,
+   ist nicht mehr das Thema. Bleibt seine Karte stehen, steht sie über einer
+   Liste, in der er gar nicht mehr vorkommt – im schlimmsten Fall über
+   "Kein Treffer für diesen Filter".
+
+   Laufende Arbeit ist davon ausgenommen: Eine rechnende Karte ist
+   Fortschrittsanzeige, kein Rest vom vorigen Song. */
+function verlasseAktuellenSong() {
+  for (const [id, karte] of [...state.jobs]) {
+    if (karte.dataset.status === 'running' || karte.dataset.status === 'queued') continue;
+    const mixer = state.mixers.get(id);
+    if (mixer) { try { mixer.pause(); } catch (_) {} }
+    karte.remove();
+    state.jobs.delete(id);
+    state.mixers.delete(id);
+    state.jobDaten.delete(id);
+  }
+  state.infoTrack = null;
+  renderInfospalte();
+  updateQueue();
+}
+
 function renderSeitenleiste() {
   const nav = $('seitenleiste');
   nav.innerHTML = '';
@@ -2245,6 +2270,7 @@ function renderSeitenleiste() {
     knopf.dataset.ziel = b.ziel;
     if (b.zahl) knopf.append(Object.assign(el('span', 'zahl'), { textContent: String(n) }));
     knopf.onclick = () => {
+      if (b.verlaesst) verlasseAktuellenSong();
       const ziel = document.getElementById(b.ziel);
       if (ziel) ziel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
@@ -2261,7 +2287,11 @@ function renderSeitenleiste() {
   for (const f of feste) {
     const b = el('button', state.playlistFilter === null && !state.nurDieseSitzung ? 'on' : null, f.label);
     b.append(Object.assign(el('span', 'zahl'), { textContent: String(f.zahl) }));
-    b.onclick = () => { state.playlistFilter = null; state.nurDieseSitzung = false; renderSeitenleiste(); renderTable(); };
+    b.onclick = () => {
+      state.playlistFilter = null; state.nurDieseSitzung = false;
+      verlasseAktuellenSong();
+      renderSeitenleiste(); renderTable();
+    };
     nav.append(b);
   }
   for (const [name, pfade] of Object.entries(state.playlists)) {
@@ -2270,6 +2300,7 @@ function renderSeitenleiste() {
     b.onclick = () => {
       state.playlistFilter = state.playlistFilter === name ? null : name;
       state.nurDieseSitzung = false;
+      verlasseAktuellenSong();
       renderSeitenleiste(); renderTable();
     };
     b.oncontextmenu = (ev) => {

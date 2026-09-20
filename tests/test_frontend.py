@@ -965,3 +965,62 @@ def test_rad_klappt_bei_auswahl_nicht_zu(html):
     assert fn, "Der Umschalter fehlt"
     # Die Segment-Klicks dürfen den Bereich nicht verbergen.
     assert not re.search(r"seg\.onclick[^}]*wheel-box'\)\.hidden = true", html, re.S)
+
+
+# --------------------------------------------------------------------------- #
+# Bereichswechsel räumt auf
+# --------------------------------------------------------------------------- #
+
+def test_bereichswechsel_schliesst_den_offenen_song(html):
+    """Wer links eine andere Playlist oder einen anderen Bereich wählt,
+    verlässt den Song, mit dem er gerade gearbeitet hat. Bleibt dessen
+    Karte stehen, steht sie über einer Liste, in der er nicht mehr
+    vorkommt – im Extremfall über „Kein Treffer für diesen Filter".
+    """
+    assert re.search(r"function verlasseAktuellenSong\(", html), \
+        "Es braucht einen Weg, die Ansicht eines Songs zu verlassen"
+
+
+def test_playlistwechsel_raeumt_auf(html):
+    """Der Wechsel selbst muss das auch auslösen."""
+    fn = re.search(r"b\.onclick = \(\) => \{\s*state\.playlistFilter.*?\};", html, re.S)
+    assert fn, "Der Playlist-Klick nicht gefunden"
+    assert "verlasseAktuellenSong()" in fn.group(0), \
+        "Beim Playlist-Wechsel muss der offene Song weichen"
+
+
+def test_laufende_arbeit_bleibt_beim_wechsel_stehen(html):
+    """Eine rechnende Karte ist Fortschrittsanzeige, kein Rest vom vorigen
+    Song – sie darf ein Wechsel nicht wegräumen."""
+    fn = re.search(r"function verlasseAktuellenSong\(.*?\n\}", html, re.S)
+    assert fn, "Die Funktion fehlt"
+    assert re.search(r"'running'", fn.group(0)) and re.search(r"'queued'", fn.group(0)), \
+        "Laufende und wartende Karten müssen verschont bleiben"
+
+
+def test_rechte_spalte_leert_sich_beim_wechsel(html):
+    """Sonst zeigt sie weiter die Werte eines Songs, den man verlassen hat."""
+    fn = re.search(r"function verlasseAktuellenSong\(.*?\n\}", html, re.S)
+    assert fn and re.search(r"state\.infoTrack = null", fn.group(0)), \
+        "Die rechte Spalte gehört mit geleert"
+
+
+def test_neuer_track_verlaesst_den_offenen_song(html):
+    """Wer „Neuer Track" wählt, beginnt etwas Neues – der alte Song hat
+    dort nichts mehr zu suchen. Dasselbe gilt für „Analysen": Wer die
+    Liste ansieht, hat den einzelnen Song verlassen."""
+    liste = re.search(r"const BEREICHE = \[(.*?)\];", html, re.S)
+    assert liste, "Die Bereichsliste fehlt"
+    for ziel in ("bereich-neu", "bereich-analysen"):
+        eintrag = re.search(rf"\{{ ziel: '{ziel}'[^}}]*\}}", liste.group(1))
+        assert eintrag and "verlaesst: true" in eintrag.group(0), \
+            f"{ziel} muss den offenen Song verlassen"
+
+    # "In Arbeit" zeigt gerade die laufenden Karten – dort wäre Aufräumen
+    # widersinnig.
+    arbeit = re.search(r"\{ ziel: 'jobs-card'[^}]*\}", liste.group(1))
+    assert arbeit and "verlaesst" not in arbeit.group(0), \
+        "„In Arbeit\" darf nicht aufräumen"
+
+    # Und der Klick muss es auslösen.
+    assert re.search(r"if \(b\.verlaesst\) verlasseAktuellenSong\(\);", html)
