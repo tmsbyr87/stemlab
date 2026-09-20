@@ -289,3 +289,54 @@ def test_theme_umschalter_ist_bedienbar(html):
     # Er muss die Zustände der Reihe nach durchlaufen.
     assert re.search(r"THEMES\[\(i \+ 1\) % THEMES\.length\]", html), \
         "Der Knopf muss zum nächsten Zustand weiterschalten"
+
+
+# --------------------------------------------------------------------------- #
+# Dreispaltiges Grundgerüst
+# --------------------------------------------------------------------------- #
+
+def test_layout_hat_drei_spalten(html):
+    """Links Navigation, Mitte Arbeitsfläche, rechts der gewählte Track.
+    Auf einem breiten Bildschirm ist eine 1060-px-Spalte Verschwendung."""
+    assert re.search(r"\.shell\{[^}]*display:grid", html), "Grundgerüst fehlt"
+    assert re.search(r'id="seitenleiste"', html)
+    assert re.search(r'id="mitte"', html)
+    assert re.search(r'id="infospalte"', html)
+
+
+def test_layout_faellt_auf_schmalen_geraeten_zusammen(html):
+    """Drei Spalten auf dem Telefon wären drei unlesbare Streifen."""
+    assert re.search(r"@media \(max-width:\s*11\d\dpx\)\{[^@]*\.shell\{", html, re.S), \
+        "Es braucht einen Haltepunkt, an dem die Spalten zusammenfallen"
+
+
+def test_seitenleiste_zeigt_nur_erreichbare_ziele(html):
+    """Ein Menüpunkt ohne Ziel ist schlimmer als keiner. Jeder Eintrag
+    muss auf einen Bereich zeigen, den es gibt."""
+    # Die Einträge entstehen im Skript, nicht im Markup – geprüft wird
+    # deshalb die Liste, aus der sie gebaut werden.
+    liste = re.search(r"const BEREICHE = \[(.*?)\];", html, re.S)
+    assert liste, "Die Bereichsliste fehlt"
+    ziele = re.findall(r"ziel: '([a-z-]+)'", liste.group(1))
+    assert ziele, "Keine Navigationsziele"
+    for ziel in ziele:
+        assert re.search(rf'id="{ziel}"', html), f"Ziel {ziel} existiert nicht im Markup"
+
+    # Und die drei Bereiche, um die es geht, müssen erreichbar sein.
+    for pflicht in ("bereich-neu", "bereich-analysen", "jobs-card"):
+        assert pflicht in ziele, f"{pflicht} fehlt in der Seitenleiste"
+
+
+def test_bestehende_bereiche_behalten_ihre_ids(html):
+    """Der Umbau ordnet um, er benennt nicht um – sonst brechen die
+    übrigen Prüfungen und der Zustand der Oberfläche."""
+    for id_ in ("jobs", "ana-body", "ana-table", "wheel", "ana-search", "models"):
+        assert re.search(rf'id="{id_}"', html), f"{id_} verschwunden"
+
+
+def test_infospalte_beansprucht_leer_keinen_platz(html):
+    """Bevor ein Track gewählt ist, hat die rechte Spalte nichts zu zeigen.
+    Eine leere 300-px-Spalte würde die Arbeitsfläche grundlos schmaler
+    machen."""
+    assert re.search(r"\.shell:not\(\.hat-auswahl\)\{grid-template-columns:200px minmax\(0,1fr\)\}", html)
+    assert re.search(r"\.shell:not\(\.hat-auswahl\) \.infospalte\{display:none\}", html)

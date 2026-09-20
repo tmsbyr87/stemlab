@@ -54,6 +54,38 @@
   body{touch-action:manipulation;margin:0;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;
        font:14px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",system-ui,sans-serif;
        background-image:radial-gradient(1200px 600px at 50% -200px,var(--accent-soft),transparent 60%)}
+  /* Drei Spalten: links die Bereiche, Mitte die Arbeit, rechts der gewählte
+     Track. Unter 1180 px fallen sie übereinander – drei Streifen auf einem
+     Laptop wären schmaler als eine Spalte und schlechter zu lesen. */
+  .shell{display:grid;grid-template-columns:200px minmax(0,1fr) 300px;gap:16px;
+         max-width:1500px;margin:0 auto;padding:18px 18px 40px;align-items:start}
+  /* Solange nichts gewählt ist, steht rechts nichts – dann soll die Spalte
+     auch keinen Platz beanspruchen. */
+  .shell:not(.hat-auswahl){grid-template-columns:200px minmax(0,1fr)}
+  .shell:not(.hat-auswahl) .infospalte{display:none}
+  .seitenleiste{position:sticky;top:18px;display:flex;flex-direction:column;gap:2px;
+                background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+                padding:10px;box-shadow:var(--shadow)}
+  .seitenleiste .gruppe{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+                        color:var(--muted);padding:12px 8px 5px}
+  .seitenleiste button{display:flex;align-items:center;gap:9px;width:100%;text-align:left;
+                       padding:7px 9px;border:0;border-radius:9px;background:transparent;
+                       color:var(--text-2);font:inherit;font-size:13px;cursor:pointer}
+  .seitenleiste button:hover{background:var(--panel-2);color:var(--text)}
+  .seitenleiste button.on{background:var(--accent-soft);color:var(--accent-2);font-weight:600}
+  .seitenleiste .zahl{margin-left:auto;font-size:11px;color:var(--muted)}
+  .infospalte{position:sticky;top:18px;display:flex;flex-direction:column;gap:12px}
+  @media (max-width:1180px){
+    .shell{grid-template-columns:1fr;max-width:1060px}
+    .seitenleiste{position:static;flex-direction:row;flex-wrap:wrap;align-items:center}
+    .seitenleiste .gruppe{padding:0 6px 0 0}
+    .seitenleiste button{width:auto}
+    .infospalte{position:static}
+  }
+  /* Im Grundgerüst bestimmt die Spalte die Breite, nicht mehr .wrap selbst.
+     Die alte Begrenzung gilt nur noch, wenn die Spalten zusammengefallen
+     sind – dann ist .wrap wieder die einzige Spalte. */
+  #mitte{max-width:none;margin:0;padding:0}
   .wrap{max-width:1060px;margin:0 auto;
         padding:20px max(22px,env(safe-area-inset-right)) calc(80px + env(safe-area-inset-bottom)) max(22px,env(safe-area-inset-left))}
   .top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}
@@ -428,7 +460,9 @@
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="shell">
+  <nav class="seitenleiste" id="seitenleiste" aria-label="Bereiche"></nav>
+  <div class="wrap" id="mitte">
   <div class="top">
     <div class="brand">
       <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 13V11M8 16V8M12 18V6M16 15V9M20 13V11" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg></div>
@@ -454,7 +488,7 @@
     <input type="file" id="picker" multiple hidden>
   </div>
 
-  <div class="card">
+  <div class="card" id="bereich-neu">
     <div class="bar">
       <div class="seg" id="mode" title="Was mit dem Song passieren soll">
         <button data-v="separate" class="on">Trennen</button><button data-v="analyze">Nur analysieren</button>
@@ -484,7 +518,7 @@
     <div id="jobs"></div>
   </div>
 
-  <div class="card">
+  <div class="card" id="bereich-analysen">
     <h3>Analysen <span class="tag" id="ana-count">0</span><span class="grow"></span>
       <button class="quiet sm" id="ana-reload" title="Zielordner neu einlesen">aktualisieren</button></h3>
     <div class="analyse">
@@ -523,6 +557,8 @@
   </div>
 
   <footer>Alles bleibt auf diesem Mac. „Beenden" oben rechts stoppt StemLab.</footer>
+  </div>
+  <aside class="infospalte" id="infospalte"></aside>
 </div>
 <div class="toasts" id="toasts"></div>
 <div class="overlay" id="overlay"><div><h2>StemLab wurde beendet</h2>Zum erneuten Starten die App im Ordner „Programme" öffnen.</div></div>
@@ -735,6 +771,7 @@ function renderTable(keepShown) {
   const frag = document.createDocumentFragment();
   body.innerHTML = '';
   $('ana-empty').hidden = rows.length > 0;
+  renderSeitenleiste();
   // Der Filter taucht erst auf, wenn es etwas zu filtern gibt.
   const neuKnopf = $('ana-filter-neu');
   neuKnopf.hidden = state.neueDieseSitzung.size === 0;
@@ -1673,6 +1710,35 @@ function fileRow(path) {
   row.append(n, play, seek, time, fin); return row;
 }
 
+/* ---------- Seitenleiste ----------
+   Nur Einträge, die irgendwohin führen. Ein Menüpunkt ohne Ziel ist
+   schlimmer als keiner: Er verspricht eine Funktion, die es nicht gibt.
+   Die Playlists kommen in Phase 4 dazu, wenn sie etwas können. */
+
+const BEREICHE = [
+  { ziel: 'bereich-neu',      label: 'Neuer Track' },
+  { ziel: 'bereich-analysen', label: 'Analysen', zahl: () => state.analyses.length },
+  { ziel: 'jobs-card',        label: 'In Arbeit', zahl: () => state.jobs.size, nurWennGefuellt: true },
+];
+
+function renderSeitenleiste() {
+  const nav = $('seitenleiste');
+  nav.innerHTML = '';
+  nav.append(Object.assign(el('div', 'gruppe'), { textContent: 'Bereiche' }));
+  for (const b of BEREICHE) {
+    const n = b.zahl ? b.zahl() : 0;
+    if (b.nurWennGefuellt && !n) continue;
+    const knopf = el('button', null, b.label);
+    knopf.dataset.ziel = b.ziel;
+    if (b.zahl) knopf.append(Object.assign(el('span', 'zahl'), { textContent: String(n) }));
+    knopf.onclick = () => {
+      const ziel = document.getElementById(b.ziel);
+      if (ziel) ziel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+    nav.append(knopf);
+  }
+}
+
 /* ---------- Erscheinungsbild ----------
    Drei Zustände statt zwei: Wer "Automatisch" wählt, folgt dem Mac – das
    ist die Voreinstellung und für die meisten die richtige. Die beiden
@@ -1705,6 +1771,7 @@ $('theme-btn').onclick = () => {
 };
 
 themeSetzen(themeLesen());
+renderSeitenleiste();
 
 /* ---------- Ereignisse, Upload, Einstellungen ---------- */
 function connect() {
