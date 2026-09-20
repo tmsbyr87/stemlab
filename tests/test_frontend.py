@@ -792,3 +792,38 @@ def test_infospalte_beginnt_auf_hoehe_der_karte(html):
     assert re.search(r"\.infospalte\{[^}]*--ab-oben", html, re.S) or \
            re.search(r"#infospalte[^{]*\{[^}]*margin-top", html, re.S), \
            "Die Infospalte braucht einen Versatz auf Kartenhöhe"
+
+
+def test_einstellungen_und_hell_sehen_verschieden_aus(html):
+    """Beide Icons waren ein Kreis mit Strichen drumherum – geometrisch
+    dieselbe Form. Nebeneinander in der Kopfzeile war nicht zu erkennen,
+    welches wofür steht.
+
+    Ein Zahnrad hat eine geschlossene, gezackte Kontur; eine Sonne hat
+    freistehende Strahlen um einen Kreis. Das unterscheidet sie.
+    """
+    knopf = re.search(r'<button[^>]*id="open-settings".*?</button>', html, re.S)
+    assert knopf, "Der Einstellungen-Knopf fehlt"
+    zahnrad = knopf.group(0)
+
+    sonne = re.search(r"wert: 'light'.*?icon: '(<svg.*?</svg>)'", html, re.S)
+    assert sonne, "Das Sonnen-Icon fehlt"
+
+    # Die Strahlen der Sonne dürfen nicht im Zahnrad auftauchen.
+    strahlen = re.search(r'd="(M8 1\.[0-9]v1\.[0-9][^"]*)"', sonne.group(1))
+    assert strahlen, "Die Sonne hat keine erkennbaren Strahlen"
+    assert strahlen.group(1) not in zahnrad, \
+        "Das Zahnrad benutzt denselben Pfad wie die Sonne"
+
+    # Ein Zahnrad hat eine geschlossene, gezackte Kontur. Die Sonne besteht
+    # aus einem Kreis plus acht geraden Strichen – erkennbar an den vielen
+    # "M…v…M…h…"-Sprüngen in einem einzigen Pfad.
+    zahnPfade = re.findall(r'<path[^>]*\sd="([^"]+)"', zahnrad)
+    assert zahnPfade, "Das Zahnrad hat keinen Pfad"
+    assert any(len(d) > 200 for d in zahnPfade), \
+        "Eine gezackte Kontur braucht mehr als ein paar gerade Striche"
+
+    # Und es darf nicht dieselbe Bauweise haben wie die Sonne: Kreis-Element
+    # plus Strichliste.
+    assert not ("<circle" in zahnrad and "M8 1." in zahnrad), \
+        "Das Zahnrad ist noch als Kreis mit Strahlen gebaut"
