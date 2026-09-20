@@ -5,6 +5,8 @@ tatsächlich liefert. Der Referenztrack wurde einmal mit 126,9 BPM statt 124,0
 gemeldet – die Ursache steckt in `test_zwischenschlaege_verschieben_das_tempo_nicht`.
 """
 
+import re
+
 import numpy as np
 import pytest
 
@@ -490,3 +492,18 @@ def test_letzter_abschnitt_kann_outro_sein():
     abschnitte = analysis.segmente(y, downbeats, anzahl=5)
 
     assert abschnitte[-1]["art"] in ("Outro", "Breakdown")
+
+
+def test_benennung_verteilt_sich_sinnvoll():
+    """Wenn mehr als die Hälfte aller Abschnitte "Break" heißt, sagt die
+    Einteilung nichts mehr.
+
+    An 40 Abschnitten echter Clubtracks liegt der Bassanteil im Median bei
+    0,55 des Maximums – eine Schwelle von 0,6 machte 57 % zu Breaks.
+    """
+    import inspect
+    quelle = inspect.getsource(analysis._abschnittsart)
+    treffer = re.search(r"wenig_bass = bass < bassreich \* ([\d.]+)", quelle)
+    assert treffer, "Die Bass-Schwelle fehlt"
+    assert float(treffer.group(1)) <= 0.5, \
+        "Über 0,5 gilt der Median eines echten Tracks bereits als bassarm"

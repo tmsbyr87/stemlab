@@ -71,6 +71,62 @@ def _feld(analysen: list[dict], name: str) -> list:
     return [_anzahl(a[name]) for a in analysen if a.get(name) is not None]
 
 
+def _auf_achter(wert: float) -> int:
+    """Auf die nächste Achtergruppe runden.
+
+    Tanzmusik ist in Acht- und Sechzehnergruppen gebaut. Ein Vorschlag von
+    17 Takten wäre unbrauchbar – gemeint sind 16, und im Sequenzer arbeitet
+    niemand mit krummen Längen.
+    """
+    return int(max(8, round(wert / 8) * 8))
+
+
+def _erster(segmente: list[dict], arten: tuple[str, ...]) -> int | None:
+    """Der Takt, an dem der erste Abschnitt einer dieser Arten beginnt."""
+    for seg in segmente:
+        if seg.get("art") in arten:
+            return seg.get("takt_von")
+    return None
+
+
+def raster(analysen: list[dict]) -> dict:
+    """Ein Arbeitsraster in Takten – das, womit man im Sequenzer anfängt.
+
+    Nicht "die Tracks sind im Schnitt 6:06 lang", sondern "Intro 16 Takte,
+    erster Drop bei Takt 65". Sekunden helfen beim Auflegen, Takte beim
+    Bauen.
+
+    Ohne Strukturdaten bleiben die Felder leer, statt etwas zu erfinden:
+    Ältere Analysen kennen keine Abschnitte.
+    """
+    intros, drops, gesamt, teile = [], [], [], []
+    for a in analysen:
+        segmente = a.get("segments") or []
+        if not segmente:
+            continue
+        teile.append(len(segmente))
+        gesamt.append(sum(s.get("takte", 0) for s in segmente))
+        if segmente[0].get("art") in ("Intro", "Aufbau"):
+            intros.append(segmente[0].get("takte", 0))
+        drop = _erster(segmente, ("Drop",))
+        if drop:
+            drops.append(drop)
+
+    ergebnis = {
+        "intro_takte": _verteilung(intros),
+        "erster_drop_takt": _verteilung(drops),
+        "gesamt_takte": _verteilung(gesamt),
+        "abschnitte": _verteilung(teile),
+    }
+    # Ein gerundeter Vorschlag je Feld: Damit fängt man an, statt mit
+    # einem Median von 16,5 Takten.
+    for feld in ("intro_takte", "erster_drop_takt", "gesamt_takte"):
+        v = ergebnis[feld]
+        if v.get("anzahl"):
+            v["vorschlag"] = _auf_achter(v["median"])
+    return ergebnis
+
+
 def erstelle(analysen: list[dict]) -> dict:
     """Ein Profil aus einer Menge von Analysen."""
     n = len(analysen)
@@ -92,6 +148,7 @@ def erstelle(analysen: list[dict]) -> dict:
         "tanzbarkeit": _verteilung(_feld(analysen, "danceability")),
         "laenge": _verteilung(_feld(analysen, "seconds_analyzed")),
         "takte": _verteilung(_feld(analysen, "downbeats")),
+        "raster": raster(analysen),
         "tonart": {
             "haeufigste": Counter(camelots).most_common(5),
             "moll_anteil": round(moll / mit_tonart, 2) if mit_tonart else 0.0,

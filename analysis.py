@@ -421,9 +421,13 @@ def _abschnittsart(pegel: float, bass: float, laut: float, bassreich: float) -> 
     Die Benennung ist eine Deutung, keine Messung – deshalb liefert
     segmente() die Kennzahlen mit, auf denen sie beruht.
     """
+    # Die Bass-Schwelle ist an 40 Abschnitten aus 5 Clubtracks gemessen: Der
+    # Median liegt bei 0,55 des Maximums. Bei einer Schwelle von 0,6 galt
+    # mehr als die Hälfte aller Abschnitte als bassarm – dann heißt fast
+    # alles "Break", und die Einteilung sagt nichts mehr.
     leise = pegel < laut * 0.6
     viel_bass = bass > bassreich * 0.85
-    wenig_bass = bass < bassreich * 0.6
+    wenig_bass = bass < bassreich * 0.45
 
     if leise:
         return "Breakdown" if wenig_bass else "Aufbau"

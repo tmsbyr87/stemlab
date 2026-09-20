@@ -158,3 +158,105 @@ def test_null_und_negativ_zaehlen_nicht_als_messwert():
 
     assert p["tempo"]["anzahl"] == 2
     assert p["tempo"]["min"] == 124
+
+
+# --------------------------------------------------------------------------- #
+# Arbeitsraster
+# --------------------------------------------------------------------------- #
+#
+# Aus dem Profil ein Raster, das man beim Produzieren danebenlegen kann:
+# Zahlen in Takten, mit denen man im Sequenzer arbeitet.
+
+def _mit_struktur(*abschnitte, **werte):
+    """Eine Analyse mit Abschnitten. Jeder ist (art, takte)."""
+    takt = 0
+    segs = []
+    for art, n in abschnitte:
+        segs.append({"art": art, "takte": n, "takt_von": takt + 1,
+                     "start": takt * 2.0, "ende": (takt + n) * 2.0,
+                     "pegel": 0.3, "bass": 0.4})
+        takt += n
+    return _a(segments=segs, downbeats=takt, **werte)
+
+
+def test_raster_nennt_die_intro_laenge():
+    """Die erste Frage beim Nachbauen: Wie lang läuft es, bevor es losgeht?"""
+    analysen = [_mit_struktur(("Intro", 16), ("Groove", 32), ("Drop", 32)) for _ in range(3)]
+
+    r = profil.raster(analysen)
+
+    assert r["intro_takte"]["median"] == 16
+
+
+def test_raster_nennt_den_ersten_drop():
+    """Der Takt, an dem der erste Drop beginnt – in Takten, nicht in
+    Sekunden, weil man im Sequenzer in Takten arbeitet."""
+    analysen = [_mit_struktur(("Intro", 16), ("Groove", 48), ("Drop", 32)) for _ in range(3)]
+
+    r = profil.raster(analysen)
+
+    assert r["erster_drop_takt"]["median"] == 65
+
+
+def test_raster_rundet_auf_achtergruppen():
+    """Tanzmusik ist in Acht- und Sechzehnergruppen gebaut. Ein Vorschlag
+    von 17 Takten wäre unbrauchbar – 16 ist gemeint."""
+    analysen = [
+        _mit_struktur(("Intro", 15), ("Drop", 32)),
+        _mit_struktur(("Intro", 17), ("Drop", 32)),
+        _mit_struktur(("Intro", 16), ("Drop", 32)),
+    ]
+
+    vorschlag = profil.raster(analysen)["intro_takte"]["vorschlag"]
+    assert vorschlag % 8 == 0
+    assert vorschlag == 16, "Der Median von 16 gehört auf 16 gerundet, nicht abgeschnitten"
+
+
+def test_raster_rundet_auch_krumme_werte():
+    """Ein Median von 20 liegt zwischen zwei Achtergruppen – gerundet wird
+    zur nächsten, nicht abgeschnitten."""
+    analysen = [_mit_struktur(("Intro", n), ("Drop", 32)) for n in (19, 20, 21)]
+    assert profil.raster(analysen)["intro_takte"]["vorschlag"] in (16, 24)
+
+
+def test_raster_zaehlt_nur_echte_intros():
+    """Beginnt ein Track direkt mit dem Groove, hat er kein Intro – das
+    als 0 zu zählen verschöbe den Median nach unten."""
+    mit = [_mit_struktur(("Intro", 16), ("Drop", 32)) for _ in range(3)]
+    ohne = [_mit_struktur(("Groove", 32), ("Drop", 32)) for _ in range(2)]
+
+    r = profil.raster(mit + ohne)
+
+    assert r["intro_takte"]["anzahl"] == 3, "Nur Tracks mit Intro zählen"
+    assert r["intro_takte"]["median"] == 16
+
+
+def test_raster_ohne_struktur_bleibt_leer():
+    """Ältere Analysen kennen keine Abschnitte – dann gibt es kein Raster,
+    statt eines erfundenen."""
+    r = profil.raster([_a() for _ in range(5)])
+
+    assert r["intro_takte"]["anzahl"] == 0
+    assert r["erster_drop_takt"]["anzahl"] == 0
+
+
+def test_raster_nennt_die_gesamtlaenge_in_takten():
+    analysen = [_mit_struktur(("Intro", 16), ("Drop", 32), ("Outro", 16)) for _ in range(3)]
+
+    assert profil.raster(analysen)["gesamt_takte"]["median"] == 64
+
+
+def test_raster_zaehlt_die_abschnitte():
+    """Wie viele Teile hat ein typischer Track dieser Sammlung?"""
+    analysen = [_mit_struktur(("Intro", 16), ("Groove", 16), ("Drop", 32), ("Outro", 16))
+                for _ in range(3)]
+
+    assert profil.raster(analysen)["abschnitte"]["median"] == 4
+
+
+def test_raster_ohne_drop():
+    """Nicht jeder Track hat einen – dann fehlt die Angabe, statt null zu
+    behaupten."""
+    analysen = [_mit_struktur(("Intro", 16), ("Groove", 48)) for _ in range(3)]
+
+    assert profil.raster(analysen)["erster_drop_takt"]["anzahl"] == 0
