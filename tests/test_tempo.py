@@ -5,6 +5,7 @@ tatsächlich liefert. Der Referenztrack wurde einmal mit 126,9 BPM statt 124,0
 gemeldet – die Ursache steckt in `test_zwischenschlaege_verschieben_das_tempo_nicht`.
 """
 
+import json
 import re
 
 import numpy as np
@@ -441,16 +442,15 @@ def test_struktur_anzahl_richtet_sich_nach_der_laenge():
 def test_drop_braucht_pegel_und_bass():
     """Ein Drop ist der lauteste Teil mit vollem Bass – beides zusammen.
     Ohne die Bedingung hieße jeder laute Abschnitt so."""
-    import inspect
-
-    quelle = inspect.getsource(analysis._abschnittsart)
-    assert "laut * 0.92" in quelle, "Der Drop misst sich am lautesten Abschnitt"
-    assert "viel_bass" in quelle, "Und braucht vollen Bass"
-
     # Laut, aber bassarm ist kein Drop.
-    assert analysis._abschnittsart(0.40, 0.10, 0.40, 0.60) != "Drop"
-    # Laut und bassreich schon.
-    assert analysis._abschnittsart(0.40, 0.58, 0.40, 0.60) == "Drop"
+    assert analysis._abschnittsart(1.00, 0.20, 1.0, 1.0) != "Drop"
+    # Voller Bass, aber nicht der lauteste Teil: auch kein Drop.
+    assert analysis._abschnittsart(0.80, 1.00, 1.0, 1.0) != "Drop"
+    # Beides zusammen schon.
+    assert analysis._abschnittsart(1.00, 1.00, 1.0, 1.0) == "Drop"
+    # Die Schwelle ist relativ: derselbe Abschnitt in einem leise
+    # gemasterten Track bleibt ein Drop.
+    assert analysis._abschnittsart(0.40, 0.60, 0.40, 0.60) == "Drop"
 
 
 def test_erster_abschnitt_heisst_nicht_drop():
@@ -465,18 +465,8 @@ def test_erster_abschnitt_heisst_nicht_drop():
 
     abschnitte = analysis.segmente(y, downbeats, anzahl=4)
 
-    assert abschnitte[0]["art"] != "Drop"
     assert abschnitte[0]["art"] == "Intro", \
         "Der erste Abschnitt ist das Intro, auch wenn er laut ist"
-
-    # Die Regel selbst, weil synthetisches Material die Drop-Bedingung
-    # nicht erreicht: An echten Tracks ist der Anfang oft schon der volle
-    # Beat und würde sonst "Drop" heißen.
-    import inspect
-    quelle = inspect.getsource(analysis.segmente)
-    assert 'abschnitte[0]["art"] == "Drop"' in quelle, \
-        "Ein lautes Intro darf nicht als Drop durchgehen"
-    assert 'abschnitte[0]["art"] = "Intro"' in quelle
 
 
 def test_letzter_abschnitt_kann_outro_sein():
@@ -495,15 +485,125 @@ def test_letzter_abschnitt_kann_outro_sein():
 
 
 def test_benennung_verteilt_sich_sinnvoll():
-    """Wenn mehr als die Hälfte aller Abschnitte "Break" heißt, sagt die
-    Einteilung nichts mehr.
+    """Wenn ein einzelner Name mehr als die Hälfte aller Abschnitte trägt,
+    sagt die Einteilung nichts mehr.
 
-    An 40 Abschnitten echter Clubtracks liegt der Bassanteil im Median bei
-    0,55 des Maximums – eine Schwelle von 0,6 machte 57 % zu Breaks.
+    Die Schwellen sind an 156 Abschnitten aus 20 Clubtracks gemessen: Der
+    Bass liegt im Median bei 0,68 des Maximums. Eine Schwelle darüber
+    erklärt den Normalfall zur Ausnahme.
     """
-    import inspect
-    quelle = inspect.getsource(analysis._abschnittsart)
-    treffer = re.search(r"wenig_bass = bass < bassreich \* ([\d.]+)", quelle)
-    assert treffer, "Die Bass-Schwelle fehlt"
-    assert float(treffer.group(1)) <= 0.5, \
-        "Über 0,5 gilt der Median eines echten Tracks bereits als bassarm"
+    # Der Median eines echten Tracks darf nicht als bassarm gelten.
+    assert analysis._abschnittsart(0.95, 0.68, 1.0, 1.0) != "Break"
+    # Und ein deutlich bassarmer Abschnitt schon.
+    assert analysis._abschnittsart(0.95, 0.20, 1.0, 1.0) == "Break"
+
+
+# --------------------------------------------------------------------------- #
+# Stellung im Track und Trennschärfe der Benennung
+# --------------------------------------------------------------------------- #
+
+def _messreihe(arten: list[str]) -> list[dict]:
+    """Abschnitte mit vorgegebener Benennung, wie segmente() sie aufbaut."""
+    return [{"art": a, "pegel": 0.5, "bass": 0.5, "takte": 8,
+             "takt_von": 1 + 8 * i, "start": 0.0, "ende": 1.0, "perkussiv": 1.0}
+            for i, a in enumerate(arten)]
+
+
+def test_erster_abschnitt_ist_immer_intro():
+    """Egal was gemessen wurde: Der erste Abschnitt ist der Einstieg.
+
+    Vorher galt die Umbenennung nur für "Drop", "Breakdown" und "Aufbau".
+    An 20 echten Clubtracks hieß der erste Abschnitt in 7 Fällen "Groove"
+    und blieb damit ohne Intro – obwohl es eines war.
+    """
+    for gemessen in ("Groove", "Drop", "Break", "Breakdown", "Aufbau"):
+        abschnitte = _messreihe([gemessen, "Groove", "Groove"])
+        analysis._nach_stellung(abschnitte)
+        assert abschnitte[0]["art"] == "Intro", f"{gemessen} am Anfang ist ein Intro"
+
+
+def test_letzter_abschnitt_ist_outro_wenn_er_abfaellt():
+    """Was am Schluss leiser wird als der Rest, ist ein Outro."""
+    abschnitte = _messreihe(["Groove", "Groove", "Groove"])
+    abschnitte[1]["pegel"] = 1.0          # lautester Teil in der Mitte
+    abschnitte[-1]["pegel"] = 0.6         # Schluss fällt ab
+    analysis._nach_stellung(abschnitte)
+    assert abschnitte[-1]["art"] == "Outro"
+
+
+def test_lauter_schluss_bleibt_kein_outro():
+    """Ein Track, der auf voller Lautstärke endet, hat kein Outro –
+    sonst hieße der Schluss immer so und die Angabe sagt nichts."""
+    abschnitte = _messreihe(["Groove", "Groove", "Drop"])
+    abschnitte[-1]["pegel"] = 1.0
+    analysis._nach_stellung(abschnitte)
+    assert abschnitte[-1]["art"] == "Drop"
+
+
+def test_einziger_abschnitt_wird_nicht_zum_outro():
+    """Mit einem Abschnitt gibt es keine Stellung – Anfang ist auch Ende."""
+    abschnitte = _messreihe(["Groove"])
+    analysis._nach_stellung(abschnitte)
+    assert abschnitte[0]["art"] == "Intro"
+
+
+def test_benennung_trennt_den_lauten_mittelbereich():
+    """Über 20 Clubtracks (156 Abschnitte) lag der Pegel im Median bei 0,90
+    des Maximums und der Bass bei 0,68. In dem Bereich hieß alles "Groove" –
+    56 % aller Abschnitte. Ein Aufbau unterscheidet sich vom Groove dadurch,
+    dass er laut ist, aber der Bass noch fehlt."""
+    # Voller Pegel, Bass noch nicht da: Aufbau, nicht Groove.
+    assert analysis._abschnittsart(0.95, 0.55, 1.0, 1.0) == "Aufbau"
+    # Voller Pegel, voller Bass: Groove oder Drop, jedenfalls kein Aufbau.
+    assert analysis._abschnittsart(0.95, 0.95, 1.0, 1.0) in ("Groove", "Drop")
+
+
+def test_verteilung_auf_echtem_material_bleibt_gemischt():
+    """Schutz gegen eine Schwelle, die wieder alles in einen Topf wirft.
+
+    Die Kennzahlen stammen aus der Messung über 20 Clubtracks. Kein
+    einzelner Name darf mehr als die Hälfte aller Abschnitte tragen.
+    """
+    import collections
+    import pathlib
+
+    datei = pathlib.Path(__file__).parent / "daten" / "abschnitte.json"
+    if not datei.exists():                      # Messreihe optional
+        pytest.skip("Keine Messreihe hinterlegt")
+
+    roh = json.loads(datei.read_text())
+    zaehler = collections.Counter()
+    for track in roh:
+        laut = max(s["pegel"] for s in track) or 1.0
+        bassreich = max(s["bass"] for s in track) or 1.0
+        benannt = [dict(s, art=analysis._abschnittsart(s["pegel"], s["bass"], laut, bassreich))
+                   for s in track]
+        analysis._nach_stellung(benannt)
+        zaehler.update(s["art"] for s in benannt)
+
+    gesamt = sum(zaehler.values())
+    haeufigster, anzahl = zaehler.most_common(1)[0]
+    # 0,3 statt 0,5: Bei einer Schwelle von 0,5 ging "Aufbau" mit 35 % durch,
+    # nachdem "Groove" mit 56 % ersetzt worden war – ein Sammeltopf unter
+    # neuem Namen. Gemessen liegt der häufigste Name bei 26 %.
+    assert anzahl / gesamt <= 0.30, \
+        f"{haeufigster} trägt {anzahl}/{gesamt} Abschnitte – die Einteilung sagt nichts mehr"
+    assert len(zaehler) >= 6, f"Nur {len(zaehler)} verschiedene Namen: {zaehler}"
+
+
+def test_leiser_bereich_trennt_breakdown_von_aufbau():
+    """Nimmt der Track sich zurück, entscheidet der Bass, was es ist.
+
+    Ein Breakdown nimmt den Bass weg – das ist die Stelle, an der ein
+    Clubtrack atmet. Ein leiser Abschnitt mit Bass ist dagegen ein Aufbau,
+    der auf den Drop zuläuft. Ohne die Unterscheidung fehlt der Breakdown
+    ganz; an 20 Clubtracks war er mit 24 von 156 Abschnitten der
+    zweithäufigste Name.
+    """
+    # Leise ohne Bass: Breakdown.
+    assert analysis._abschnittsart(0.30, 0.20, 1.0, 1.0) == "Breakdown"
+    # Leise mit Bass: Aufbau.
+    assert analysis._abschnittsart(0.30, 0.90, 1.0, 1.0) == "Aufbau"
+    # Und der leise Bereich muss überhaupt erreichbar sein: Ein Abschnitt
+    # bei einem Drittel des Maximalpegels ist kein lauter Teil.
+    assert analysis._abschnittsart(0.30, 0.20, 1.0, 1.0) not in ("Groove", "Drop", "Break")

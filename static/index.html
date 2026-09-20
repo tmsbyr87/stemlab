@@ -364,6 +364,12 @@
                    color:var(--text);overflow:hidden;white-space:nowrap;cursor:pointer;
                    border:1px solid var(--line)}
   .mx-abschnitte u:hover{border-color:var(--accent)}
+  /* Mit nur einer Spur faellt die Spur selbst auf eine Spalte zusammen
+     (.tracks.nur-eine .track) – dann muessen die Kopfzeilen mit, sonst
+     stehen Takte und Abschnitte 336px rechts neben der Wellenform. */
+  .mx.nur-eine .mx-kopf,.mx.nur-eine .mx-takte,.mx.nur-eine .mx-abschnitte{grid-template-columns:1fr}
+  .mx.nur-eine .mx-bahn{grid-column:1}
+  .mx.nur-eine .mx-spacer{display:none}
   @media (max-width:760px){
     .mx-kopf,.mx-takte,.mx-abschnitte{grid-template-columns:1fr}
     .mx-bahn{grid-column:1}
@@ -1828,6 +1834,9 @@ class Mixer {
       <div class="mx-abschnitte" hidden></div>
       <div class="mx-takte" hidden></div>
       <div class="tracks${nurEineSpur ? ' nur-eine' : ''}"></div>`;
+    root.classList.add('mx');
+    root.classList.toggle('nur-eine', nurEineSpur);
+    this.nurEineSpur = nurEineSpur;
     this.playBtn = root.querySelector('.play'); this.timeEl = root.querySelector('.time'); this.abBtn = root.querySelector('.ab');
     this.playBtn.onclick = () => { if (this.playing && !this.audition) { this.pause(); return; } this.audition = null; this.applyGains(); this.updateButtons(); if (!this.playing) this.play(); else this.render(); };
     this.abBtn.onclick = () => this.toggleAB(); this.abBtn.hidden = !orig || nurEineSpur;
@@ -1895,12 +1904,13 @@ class Mixer {
     const takte = a.downbeats || 0;
     const segmente = a.segments || [];
     const leer = () => { const x = el('div'); x.className = 'mx-spacer'; return x; };
+    const platzhalter = (zeile) => { if (this.nurEineSpur) return; for (let i = 0; i < 5; i++) zeile.append(leer()); };
 
     if (segmente.length && takte) {
       const zeile = this.root.querySelector('.mx-abschnitte');
       zeile.hidden = false;
       zeile.innerHTML = '';
-      for (let i = 0; i < 5; i++) zeile.append(leer());
+      platzhalter(zeile);
       const bahn = el('div', 'mx-bahn');
       for (const seg of segmente) {
         const kasten = el('u', null, `${seg.art} · ${seg.takte}`);
@@ -1918,7 +1928,7 @@ class Mixer {
       const zeile = this.root.querySelector('.mx-takte');
       zeile.hidden = false;
       zeile.innerHTML = '';
-      for (let i = 0; i < 5; i++) zeile.append(leer());
+      platzhalter(zeile);
       const bahn = el('div', 'mx-bahn');
       // Acht- und Sechzehnergruppen sind das Raster, in dem Tanzmusik
       // gebaut ist. Bei langen Tracks größere Schritte, sonst klebt die

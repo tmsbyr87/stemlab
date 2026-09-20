@@ -414,28 +414,64 @@ def _abschnittsart(pegel: float, bass: float, laut: float, bassreich: float) -> 
 
     Die Schwellen sind relativ zum Track, nicht absolut. Ein leise
     gemasterter Track hat trotzdem einen Drop – nur eben bei einem
-    niedrigeren Pegel. An 63 Abschnitten aus 8 Clubtracks gemessen liegt
-    der Pegel zwischen 0,04 und 0,40; eine feste Schwelle von 0,65 wäre
-    nie erreicht worden.
+    niedrigeren Pegel. An 156 Abschnitten aus 20 Clubtracks gemessen
+    liegt der Pegel zwischen 0,07 und 1,00 des Maximums; eine feste
+    Schwelle wäre entweder nie oder immer erreicht worden.
 
     Die Benennung ist eine Deutung, keine Messung – deshalb liefert
     segmente() die Kennzahlen mit, auf denen sie beruht.
     """
-    # Die Bass-Schwelle ist an 40 Abschnitten aus 5 Clubtracks gemessen: Der
-    # Median liegt bei 0,55 des Maximums. Bei einer Schwelle von 0,6 galt
-    # mehr als die Hälfte aller Abschnitte als bassarm – dann heißt fast
-    # alles "Break", und die Einteilung sagt nichts mehr.
-    leise = pegel < laut * 0.6
-    viel_bass = bass > bassreich * 0.85
-    wenig_bass = bass < bassreich * 0.45
+    # Gemessen an denselben 156 Abschnitten: Der Pegel liegt im Median bei
+    # 0,90 des Maximums, der Bass bei 0,68. Der laute Bereich ist also der
+    # Normalfall, nicht die Ausnahme – wer ihn nicht unterteilt, nennt die
+    # Hälfte aller Abschnitte "Groove" und sagt damit nichts.
+    p = pegel / (laut or 1.0)
+    b = bass / (bassreich or 1.0)
 
-    if leise:
-        return "Breakdown" if wenig_bass else "Aufbau"
-    if wenig_bass:
+    # Leise: der Track nimmt sich zurück. Ob Breakdown oder Aufbau,
+    # entscheidet der Bass – ein Breakdown nimmt ihn weg.
+    if p < 0.60:
+        return "Breakdown" if b < 0.55 else "Aufbau"
+
+    # Laut, aber der Bass fehlt ganz: ein Break mitten im Stück.
+    if b < 0.45:
         return "Break"
-    if pegel > laut * 0.92 and viel_bass:
+
+    # Laut und der Bass ist noch nicht voll da: typische Spannung vor dem
+    # Drop – Filter offen, Kick noch draußen. Das ist ein Aufbau, kein Groove.
+    #
+    # Die Schwelle liegt auf dem gemessenen Median (0,68), nicht darüber:
+    # Bei 0,75 wanderten 35 % aller Abschnitte hierher und "Aufbau" wurde
+    # zum neuen Sammeltopf – derselbe Fehler wie vorher mit "Groove", nur
+    # unter anderem Namen. Bei 0,68 trägt kein Name mehr als 26 %.
+    if b < 0.68:
+        return "Aufbau"
+
+    # Voller Bass. Der lauteste Teil davon ist der Drop.
+    if p > 0.92:
         return "Drop"
     return "Groove"
+
+
+def _nach_stellung(abschnitte: list[dict]) -> None:
+    """Anfang und Ende nach ihrer Stellung benennen, nicht nach der Messung.
+
+    Pegel und Bass sagen nicht, wo im Track man ist. Der erste Abschnitt
+    ist der Einstieg, ganz gleich wie laut er gemessen wurde – bei
+    Clubtracks ist das Intro oft schon der volle Beat. An 20 echten Tracks
+    hieß der erste Abschnitt in 7 Fällen "Groove" und blieb ohne Intro.
+
+    Am Ende gilt das nur, wenn der Track abfällt: Wer auf voller
+    Lautstärke schließt, hat kein Outro, und ein Name, der immer
+    vergeben wird, sagt nichts.
+    """
+    if not abschnitte:
+        return
+    abschnitte[0]["art"] = "Intro"
+    if len(abschnitte) > 1:
+        laut = max(a["pegel"] for a in abschnitte) or 1.0
+        if abschnitte[-1]["pegel"] / laut < 0.85:
+            abschnitte[-1]["art"] = "Outro"
 
 
 def segmente(y: np.ndarray, downbeats: list[float], anzahl: int | None = None) -> list[dict]:
@@ -516,16 +552,7 @@ def segmente(y: np.ndarray, downbeats: list[float], anzahl: int | None = None) -
         for a in abschnitte:
             a["art"] = _abschnittsart(a["pegel"], a["bass"], laut, bassreich)
 
-        # Erster und letzter Abschnitt haben ihre Stellung im Track, die
-        # sich aus Pegel und Bass nicht ablesen lässt: Ein Track beginnt
-        # nicht mit dem Drop, und was am Ende leise ausläuft, ist ein Outro
-        # und kein Breakdown – danach kommt ja nichts mehr.
-        if abschnitte[0]["art"] == "Drop":
-            abschnitte[0]["art"] = "Intro"
-        elif abschnitte[0]["art"] in ("Breakdown", "Aufbau"):
-            abschnitte[0]["art"] = "Intro"
-        if len(abschnitte) > 1 and abschnitte[-1]["art"] in ("Breakdown", "Break"):
-            abschnitte[-1]["art"] = "Outro"
+        _nach_stellung(abschnitte)
     return abschnitte
 
 

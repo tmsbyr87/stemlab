@@ -673,7 +673,7 @@ def test_einzelne_spur_zeigt_keine_mischbedienung(html):
 def test_einzelne_spur_behaelt_die_wellenform(html):
     """Wellenform und Abspielkopf bleiben – sie zeigen, wo man im Stück ist.
     Nur die Mischwerkzeuge fallen weg."""
-    regel = re.search(r"\.tracks\.nur-eine[^{]*\{([^}]*)\}", html, re.S)
+    regel = re.search(r"\n\s*\.tracks\.nur-eine \.track \.tplay,.*?\{([^}]*)\}", html, re.S)
     assert regel, "Die Regel fehlt"
     assert "display:none" in regel.group(1)
     # Die Wellenform darf nicht mit ausgeblendet werden.
@@ -1245,10 +1245,13 @@ def test_mixer_hat_eine_taktleiste(html):
         assert int(wert) % 8 == 0, f"{wert} ist keine Achtergruppe"
     # Und die leeren Spalten links halten die Bahn an ihrem Platz – für
     # beide Kopfzeilen, sonst rutscht eine davon unter die Namen.
-    platzhalter = re.findall(r"for \(let i = 0; i < 5; i\+\+\) zeile\.append\(leer\(\)\)",
-                             fn.group(0))
-    assert len(platzhalter) == 2, \
+    assert len(re.findall(r"platzhalter\(zeile\)", fn.group(0))) == 2, \
         "Beide Kopfzeilen brauchen die fünf Spalten vor der Wellenform"
+    helfer = re.search(r"const platzhalter = \(zeile\) => \{([^\n]*)\}", fn.group(0))
+    assert helfer, "Der Helfer für die Platzhalter fehlt"
+    assert "i < 5" in helfer.group(1), "Es sind fünf Spalten vor der Wellenform"
+    assert "nurEineSpur" in helfer.group(1), \
+        "Mit einer Spur gibt es die fünf Spalten nicht – dann dürfen sie auch nicht entstehen"
 
 
 def test_taktleiste_liegt_ueber_der_wellenform(html):
@@ -1279,3 +1282,20 @@ def test_keine_zweite_arrangement_ansicht(html):
         "Der separate Aufbau-Bereich ist überflüssig geworden"
     assert not re.search(r"mk\('Aufbau'", html), \
         "Und sein Knopf ebenso"
+
+
+def test_einzelne_spur_richtet_die_kopfzeilen_aus(html):
+    """Mit einer Spur fällt die Spur selbst auf eine Spalte zusammen.
+
+    Tut die Taktleiste das nicht mit, behält sie die 30+118+30+30+88px
+    Vorlauf des Mixers und steht 336px rechts neben der Wellenform –
+    gemessen im Browser, bevor die Regel da war. Die Takte zeigen dann
+    auf eine Stelle, an der nichts ist.
+    """
+    assert re.search(r"root\.classList\.toggle\('nur-eine', nurEineSpur\)", html), \
+        "Die Kopfzeilen sitzen an der Wurzel, nicht an .tracks – dort greift die Klasse nicht"
+    regel = re.search(r"\.mx\.nur-eine \.mx-kopf,[^{]*\{([^}]*)\}", html)
+    assert regel, "Die Kopfzeilen brauchen eine Einspur-Variante"
+    assert "grid-template-columns:1fr" in regel.group(1)
+    assert re.search(r"\.mx\.nur-eine \.mx-bahn\{grid-column:1\}", html), \
+        "Die Bahn muss in die erste Spalte, sonst bleibt sie rechts stehen"
