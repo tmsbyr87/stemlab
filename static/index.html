@@ -421,7 +421,8 @@
   .tags-grid{display:grid;grid-template-columns:120px 1fr;gap:16px;align-items:start}
   .tags-cover{display:flex;flex-direction:column;gap:6px}
   .tags-cover button{width:120px;padding:5px 6px;font-size:11.5px;white-space:nowrap}
-  .tags-cover .art{width:120px;height:120px;border-radius:10px;border:1px solid var(--line-2);
+  .tags-cover .art.ueber{border-color:var(--accent);background:var(--accent-soft)}
+  .tags-cover .art{cursor:pointer;width:120px;height:120px;border-radius:10px;border:1px solid var(--line-2);
     background:var(--panel-3) center/cover no-repeat;display:grid;place-items:center;
     color:var(--muted);font-size:11px;text-align:center;padding:6px;box-sizing:border-box}
   .tags-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:9px 13px}
@@ -1503,7 +1504,7 @@ async function loadTags(e, d) {
   const pick = el('select');
   targets.forEach(([path, name]) => { const o = el('option', null, name); o.value = path; pick.append(o); });
 
-  const art = el('div', 'art', 'kein Cover');
+  const art = el('div', 'art', 'Bild hierher ziehen oder klicken');
   const pickCover = el('button', 'quiet sm', 'Cover wählen');
   const dropCover = el('button', 'quiet sm', 'Cover entfernen');
   const file = el('input'); file.type = 'file'; file.accept = 'image/jpeg,image/png'; file.hidden = true;
@@ -1529,10 +1530,17 @@ async function loadTags(e, d) {
       // Anführungszeichen sind Pflicht: encodeURIComponent lässt Klammern stehen,
       // und eine Klammer im Ordnernamen würde url(...) sonst vorzeitig schließen.
       art.style.backgroundImage = `url("/api/cover?path=${encodeURIComponent(current())}&t=${Date.now()}")`;
-      art.textContent = ''; dropCover.disabled = false;
+      art.textContent = '';
+      art.classList.add('hat-bild');
     } else {
-      art.style.backgroundImage = ''; art.textContent = 'kein Cover'; dropCover.disabled = true;
+      art.style.backgroundImage = '';
+      // Sagt, was möglich ist, statt nur den Mangel zu benennen.
+      art.textContent = 'Bild hierher ziehen oder klicken';
+      art.classList.remove('hat-bild');
     }
+    // Ohne Cover gibt es nichts zu entfernen. Ein ausgegrauter Knopf sieht
+    // aus wie eine Option, die gerade nicht geht – er gehört weg.
+    dropCover.hidden = !info.has_cover;
   }
 
   async function load() {
@@ -1561,8 +1569,18 @@ async function loadTags(e, d) {
   };
 
   pickCover.onclick = () => file.click();
-  file.onchange = async () => {
-    const f = file.files?.[0]; if (!f) return;
+  // Das Feld sieht aus wie eine Ablage, also soll es auch eine sein.
+  art.onclick = () => file.click();
+  art.ondragover = (ev) => { ev.preventDefault(); art.classList.add('ueber'); };
+  art.ondragleave = () => art.classList.remove('ueber');
+  art.ondrop = (ev) => {
+    ev.preventDefault(); art.classList.remove('ueber');
+    const f = [...(ev.dataTransfer?.files || [])].find(x => /^image\/(jpeg|png)$/.test(x.type));
+    if (f) sendeCover(f);
+    else toast('Nur JPEG oder PNG.', true);
+  };
+
+  async function sendeCover(f) {
     const body = new FormData(); body.append('path', current()); body.append('file', f);
     note.textContent = 'lade Cover …';
     try {
@@ -1572,7 +1590,9 @@ async function loadTags(e, d) {
       showCover(t); note.textContent = ''; toast('Cover gesetzt.');
     } catch (err) { note.textContent = ''; toast(err.message, true); }
     file.value = '';
-  };
+  }
+
+  file.onchange = () => { const f = file.files?.[0]; if (f) sendeCover(f); };
 
   dropCover.onclick = async () => {
     try { showCover(await api('/api/cover/delete', { path: current() })); toast('Cover entfernt.'); }

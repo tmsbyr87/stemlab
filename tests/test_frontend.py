@@ -570,3 +570,36 @@ def test_gruppen_umschliessen_ihre_knoepfe_ohne_zu_wachsen(html):
     seg = re.search(r"\.seg\{([^}]*)\}", html)
     assert seg and "box-sizing:border-box" in seg.group(1), \
         "Die Gruppe muss ihre Innenabstände einrechnen"
+
+
+# --------------------------------------------------------------------------- #
+# Cover
+# --------------------------------------------------------------------------- #
+
+def test_cover_entfernen_verschwindet_ohne_cover(html):
+    """Ein blasser Knopf sieht aus wie eine Option, die gerade nicht geht.
+    Ohne Cover gibt es nichts zu entfernen – dann gehört er weg, nicht
+    nur ausgegraut."""
+    assert re.search(r"dropCover\.hidden = !info\.has_cover", html), \
+        "Der Entfernen-Knopf muss ohne Cover ausgeblendet werden"
+
+
+def test_coverfeld_ist_selbst_anklickbar(html):
+    """Das Feld sieht aus wie eine Ablage – dann soll ein Klick darauf auch
+    die Dateiauswahl öffnen, nicht nur der Knopf darunter."""
+    assert re.search(r"art\.onclick = \(\) => file\.click\(\)", html), \
+        "Das Cover-Feld muss die Dateiauswahl öffnen"
+    assert re.search(r"\.tags-cover \.art\{[^}]*cursor:pointer", html, re.S), \
+        "Und es muss als klickbar erkennbar sein"
+
+
+def test_coverfeld_nimmt_bilder_per_ziehen_an(html):
+    """Ein Bild auf das Feld zu ziehen ist der kürzeste Weg."""
+    assert re.search(r"art\.ondrop", html), "Das Feld muss ein fallengelassenes Bild annehmen"
+    assert re.search(r"art\.ondragover", html), "Und das Ziehen erlauben"
+
+
+def test_coverfeld_sagt_was_zu_tun_ist(html):
+    """„kein Cover“ beschreibt einen Zustand, nicht eine Möglichkeit."""
+    assert not re.search(r"'kein Cover'", html), \
+        "Der Text soll zum Handeln auffordern, nicht nur den Mangel benennen"
