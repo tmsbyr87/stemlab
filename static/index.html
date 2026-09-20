@@ -606,7 +606,9 @@ const state = window.state = { models: [], selected: null, format: 'wav', jobs: 
   // Ordner, die in dieser Sitzung analysiert oder getrennt wurden. Nach einem
   // Lauf mit mehreren Dateien ist "was habe ich eben hinzugefügt?" die
   // häufigste Frage – dafür der Filter über der Liste.
-  neueDieseSitzung: new Set(), nurDieseSitzung: false };
+  neueDieseSitzung: new Set(), nurDieseSitzung: false,
+  // Playlists sind gespeicherte Filter: Name -> Liste von Ordnerpfaden.
+  playlists: {}, playlistFilter: null };
 const COARSE = window.matchMedia('(pointer: coarse)').matches;   // Finger statt Maus?
 const QUALITY = { roformer: 5, ensemble_vocal: 5, ensemble_inst: 5, demucs4ft: 4, mdx_inst: 4, demucs4: 3, demucs6: 3 };
 const SPEED   = { roformer: 2, ensemble_vocal: 1, ensemble_inst: 1, demucs4ft: 1, mdx_inst: 4, demucs4: 4, demucs6: 3 };
@@ -774,7 +776,9 @@ function visibleAnalyses() {
   const rows = state.analyses.filter(a =>
     (!q || a.name.toLowerCase().includes(q))
     && (!allowed || allowed.includes(a.camelot))
-    && (!state.nurDieseSitzung || state.neueDieseSitzung.has(a.folder)));
+    && (!state.nurDieseSitzung || state.neueDieseSitzung.has(a.folder))
+    && (!state.playlistFilter
+        || (state.playlists[state.playlistFilter] || []).includes(a.folder)));
   const k = state.sort.k, dir = state.sort.dir;
   rows.sort((x, y) => {
     let a = x[k], b = y[k];
@@ -1870,6 +1874,24 @@ function renderInfospalte() {
   kopf.append(Object.assign(el('div', 'info-kopf'), { textContent: d.display_name || d.folder.split('/').pop() }));
   spalte.append(kopf);
 
+  // Zuordnung zu Playlists: Häkchen je Liste, statt eines Menüs. Bei einer
+  // Handvoll Listen ist das der kürzere Weg.
+  const namen = Object.keys(state.playlists);
+  if (namen.length) {
+    const block = el('div', 'info-block');
+    block.append(Object.assign(el('div', 'k'), {
+      textContent: 'Playlists', style: 'color:var(--muted);font-size:11.5px;margin-bottom:6px' }));
+    for (const name of namen) {
+      const drin = (state.playlists[name] || []).includes(d.folder);
+      const l = el('label');
+      l.style.cssText = 'display:flex;align-items:center;gap:7px;padding:3px 0;font-size:12.5px;cursor:pointer';
+      const box = el('input'); box.type = 'checkbox'; box.checked = drin;
+      box.onchange = () => playlistAktion(box.checked ? 'hinzufuegen' : 'entfernen', name, d.folder);
+      l.append(box, name); block.append(l);
+    }
+    spalte.append(block);
+  }
+
   const leiste = el('div', 'reiter');
   for (const r of REITER) {
     const b = el('button', state.infoReiter === r.schluessel ? 'on' : null, r.label);
@@ -1896,6 +1918,22 @@ const BEREICHE = [
   { ziel: 'jobs-card',        label: 'In Arbeit', zahl: () => state.jobs.size, nurWennGefuellt: true },
 ];
 
+async function ladePlaylists() {
+  try {
+    const d = await (await fetch('/api/playlists')).json();
+    state.playlists = d.playlists || {};
+  } catch (_) { state.playlists = {}; }
+  renderSeitenleiste(); renderTable();
+}
+
+async function playlistAktion(aktion, name, folder) {
+  try {
+    const d = await api('/api/playlists', { aktion, name, folder });
+    state.playlists = d.playlists || {};
+    renderSeitenleiste(); renderTable(); renderInfospalte();
+  } catch (err) { toast(err.message, true); }
+}
+
 function renderSeitenleiste() {
   const nav = $('seitenleiste');
   nav.innerHTML = '';
@@ -1912,6 +1950,42 @@ function renderSeitenleiste() {
     };
     nav.append(knopf);
   }
+
+  // Playlists darunter. "Alle" und "gerade analysiert" sind die beiden
+  // festen Einträge – sie brauchen keine Pflege und beantworten die
+  // häufigsten Fragen.
+  nav.append(Object.assign(el('div', 'gruppe'), { textContent: 'Playlists' }));
+  const feste = [
+    { name: null, label: 'Alle Tracks', zahl: state.analyses.length },
+  ];
+  for (const f of feste) {
+    const b = el('button', state.playlistFilter === null && !state.nurDieseSitzung ? 'on' : null, f.label);
+    b.append(Object.assign(el('span', 'zahl'), { textContent: String(f.zahl) }));
+    b.onclick = () => { state.playlistFilter = null; state.nurDieseSitzung = false; renderSeitenleiste(); renderTable(); };
+    nav.append(b);
+  }
+  for (const [name, pfade] of Object.entries(state.playlists)) {
+    const b = el('button', state.playlistFilter === name ? 'on' : null, name);
+    b.append(Object.assign(el('span', 'zahl'), { textContent: String(pfade.length) }));
+    b.onclick = () => {
+      state.playlistFilter = state.playlistFilter === name ? null : name;
+      state.nurDieseSitzung = false;
+      renderSeitenleiste(); renderTable();
+    };
+    b.oncontextmenu = (ev) => {
+      ev.preventDefault();
+      if (confirm(`Playlist „${name}“ löschen? Die Tracks bleiben erhalten.`))
+        playlistAktion('loeschen', name);
+    };
+    nav.append(b);
+  }
+  const neuKnopf = el('button', null, '+ Neue Playlist');
+  neuKnopf.style.color = 'var(--muted)';
+  neuKnopf.onclick = () => {
+    const name = (prompt('Name der Playlist:') || '').trim();
+    if (name) playlistAktion('anlegen', name);
+  };
+  nav.append(neuKnopf);
 }
 
 /* ---------- Erscheinungsbild ----------
@@ -1948,6 +2022,7 @@ $('theme-btn').onclick = () => {
 themeSetzen(themeLesen());
 renderSeitenleiste();
 renderInfospalte();
+ladePlaylists();
 
 /* ---------- Ereignisse, Upload, Einstellungen ---------- */
 function connect() {

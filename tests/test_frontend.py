@@ -392,3 +392,31 @@ def test_tags_reiter_kennt_dieselben_felder_wie_der_server(html):
     felder = set(re.findall(r"\['([a-z]+)',", liste.group(1)))
     assert felder == set(postprocess.TAG_FIELDS), \
         f"Oberfläche und Server sind uneins: {felder ^ set(postprocess.TAG_FIELDS)}"
+
+
+# --------------------------------------------------------------------------- #
+# Playlists
+# --------------------------------------------------------------------------- #
+
+def test_playlists_filtern_die_liste(html):
+    """Eine Playlist ist ein gespeicherter Filter – sie verschiebt keine
+    Dateien, sie blendet die Liste ein."""
+    assert re.search(r"state\.playlists\[state\.playlistFilter\] \|\| \[\]\)\.includes\(a\.folder\)", html), \
+        "visibleAnalyses muss die Playlist auswerten"
+
+
+def test_playlists_kommen_vom_server(html):
+    """Sie liegen in config.json, nicht im Arbeitsspeicher – sonst wären
+    sie nach dem Neustart weg."""
+    assert re.search(r"fetch\('/api/playlists'\)", html)
+    assert re.search(r"api\('/api/playlists', \{ aktion", html)
+
+
+def test_playlists_stehen_in_der_seitenleiste(html):
+    assert re.search(r"textContent: 'Playlists'", html)
+    assert re.search(r"'\+ Neue Playlist'", html)
+
+
+def test_track_laesst_sich_einer_playlist_zuordnen(html):
+    """Über Häkchen in der rechten Spalte, nicht über ein verstecktes Menü."""
+    assert re.search(r"playlistAktion\(box\.checked \? 'hinzufuegen' : 'entfernen'", html)

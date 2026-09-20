@@ -320,3 +320,114 @@ def test_hochgeladene_datei_wird_aufgeraeumt(tmp_path, monkeypatch):
                      model_key="demucs4", options={})
     server.run_job(job)
     assert not quelle.exists()
+
+
+# --------------------------------------------------------------------------- #
+# Playlists
+# --------------------------------------------------------------------------- #
+#
+# Playlists sind gespeicherte Filter, keine zweite Dateiverwaltung: Sie
+# merken sich Ordnerpfade, die Dateien bleiben, wo sie sind. Deshalb reicht
+# config.json – eine Datenbank wäre für eine Handvoll Listen zu viel.
+
+def test_playlists_sind_anfangs_leer(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "CONFIG_PATH", tmp_path / "config.json")
+    antwort = client.get("/api/playlists")
+    assert antwort.status_code == 200
+    assert antwort.json()["playlists"] == {}
+
+
+def test_playlist_anlegen_und_wiederfinden(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "CONFIG_PATH", tmp_path / "config.json")
+    client.post("/api/playlists", json={"aktion": "anlegen", "name": "Warmup"})
+
+    assert "Warmup" in client.get("/api/playlists").json()["playlists"]
+
+
+def test_playlist_nimmt_einen_track_auf(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "CONFIG_PATH", tmp_path / "config.json")
+    ordner = tmp_path / "Ein Song"
+    ordner.mkdir()
+    client.post("/api/playlists", json={"aktion": "anlegen", "name": "Warmup"})
+
+    client.post("/api/playlists", json={"aktion": "hinzufuegen", "name": "Warmup",
+                                        "folder": str(ordner)})
+
+    assert client.get("/api/playlists").json()["playlists"]["Warmup"] == [str(ordner)]
+
+
+def test_playlist_nimmt_denselben_track_nicht_zweimal(client, tmp_path, monkeypatch):
+    """Sonst steht ein Song doppelt im Set."""
+    monkeypatch.setattr(server, "CONFIG_PATH", tmp_path / "config.json")
+    ordner = tmp_path / "Ein Song"; ordner.mkdir()
+    client.post("/api/playlists", json={"aktion": "anlegen", "name": "W"})
+    for _ in range(2):
+        client.post("/api/playlists", json={"aktion": "hinzufuegen", "name": "W",
+                                            "folder": str(ordner)})
+
+    assert len(client.get("/api/playlists").json()["playlists"]["W"]) == 1
+
+
+def test_playlist_track_entfernen(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "CONFIG_PATH", tmp_path / "config.json")
+    ordner = tmp_path / "Ein Song"; ordner.mkdir()
+    client.post("/api/playlists", json={"aktion": "anlegen", "name": "W"})
+    client.post("/api/playlists", json={"aktion": "hinzufuegen", "name": "W", "folder": str(ordner)})
+
+    client.post("/api/playlists", json={"aktion": "entfernen", "name": "W", "folder": str(ordner)})
+
+    assert client.get("/api/playlists").json()["playlists"]["W"] == []
+
+
+def test_playlist_loeschen(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "CONFIG_PATH", tmp_path / "config.json")
+    client.post("/api/playlists", json={"aktion": "anlegen", "name": "W"})
+
+    client.post("/api/playlists", json={"aktion": "loeschen", "name": "W"})
+
+    assert client.get("/api/playlists").json()["playlists"] == {}
+
+
+def test_playlist_name_kollidiert_nicht(client, tmp_path, monkeypatch):
+    """Zweimal derselbe Name darf die vorhandene Liste nicht leeren."""
+    monkeypatch.setattr(server, "CONFIG_PATH", tmp_path / "config.json")
+    ordner = tmp_path / "S"; ordner.mkdir()
+    client.post("/api/playlists", json={"aktion": "anlegen", "name": "W"})
+    client.post("/api/playlists", json={"aktion": "hinzufuegen", "name": "W", "folder": str(ordner)})
+
+    client.post("/api/playlists", json={"aktion": "anlegen", "name": "W"})
+
+    assert client.get("/api/playlists").json()["playlists"]["W"] == [str(ordner)]
+
+
+def test_playlist_verweist_nicht_auf_geloeschte_ordner(client, tmp_path, monkeypatch):
+    """Wer einen Ergebnisordner im Finder löscht, soll ihn nicht weiter
+    in seinen Listen finden."""
+    monkeypatch.setattr(server, "CONFIG_PATH", tmp_path / "config.json")
+    bleibt = tmp_path / "Bleibt"; bleibt.mkdir()
+    weg = tmp_path / "Weg"; weg.mkdir()
+    client.post("/api/playlists", json={"aktion": "anlegen", "name": "W"})
+    for o in (bleibt, weg):
+        client.post("/api/playlists", json={"aktion": "hinzufuegen", "name": "W", "folder": str(o)})
+
+    weg.rmdir()
+
+    assert client.get("/api/playlists").json()["playlists"]["W"] == [str(bleibt)]
+
+
+def test_playlist_ohne_namen_wird_abgelehnt(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "CONFIG_PATH", tmp_path / "config.json")
+    antwort = client.post("/api/playlists", json={"aktion": "anlegen", "name": "  "})
+    assert antwort.status_code == 400
+
+
+def test_playlist_uebersteht_einen_neustart(client, tmp_path, monkeypatch):
+    """Die Zuordnung liegt in config.json, nicht im Arbeitsspeicher."""
+    pfad = tmp_path / "config.json"
+    monkeypatch.setattr(server, "CONFIG_PATH", pfad)
+    ordner = tmp_path / "S"; ordner.mkdir()
+    client.post("/api/playlists", json={"aktion": "anlegen", "name": "W"})
+    client.post("/api/playlists", json={"aktion": "hinzufuegen", "name": "W", "folder": str(ordner)})
+
+    import json
+    assert json.loads(pfad.read_text())["playlists"]["W"] == [str(ordner)]

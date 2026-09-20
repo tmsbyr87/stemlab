@@ -688,6 +688,61 @@ def get_settings() -> JSONResponse:
     })
 
 
+@app.get("/api/playlists")
+def get_playlists() -> JSONResponse:
+    """Playlists sind gespeicherte Filter, keine zweite Dateiverwaltung.
+
+    Gemerkt werden Ordnerpfade; die Dateien bleiben, wo sie sind. Ordner,
+    die es nicht mehr gibt, fallen beim Lesen heraus – wer einen
+    Ergebnisordner im Finder löscht, soll ihn nicht weiter in seinen
+    Listen finden.
+    """
+    config = load_config()
+    roh = config.get("playlists") or {}
+    sauber = {name: [p for p in pfade if Path(p).is_dir()]
+              for name, pfade in roh.items() if isinstance(pfade, list)}
+    if sauber != roh:
+        config["playlists"] = sauber
+        save_config(config)
+    return JSONResponse({"playlists": sauber})
+
+
+@app.post("/api/playlists")
+async def post_playlists(request: Request) -> JSONResponse:
+    payload = await request.json()
+    aktion = str(payload.get("aktion", ""))
+    name = str(payload.get("name", "")).strip()
+    if not name:
+        raise HTTPException(400, "Die Liste braucht einen Namen.")
+
+    config = load_config()
+    listen = dict(config.get("playlists") or {})
+
+    if aktion == "anlegen":
+        # Ein vorhandener Name darf die Liste nicht leeren.
+        listen.setdefault(name, [])
+    elif aktion == "loeschen":
+        listen.pop(name, None)
+    elif aktion in ("hinzufuegen", "entfernen"):
+        roh = str(payload.get("folder", ""))
+        if not roh:
+            raise HTTPException(400, "Kein Ordner angegeben.")
+        ordner = str(_allowed_result_path(roh))
+        eintraege = list(listen.get(name) or [])
+        if aktion == "hinzufuegen":
+            if ordner not in eintraege:      # kein Song doppelt im Set
+                eintraege.append(ordner)
+        else:
+            eintraege = [p for p in eintraege if p != ordner]
+        listen[name] = eintraege
+    else:
+        raise HTTPException(400, f"Unbekannte Aktion: {aktion}")
+
+    config["playlists"] = listen
+    save_config(config)
+    return JSONResponse({"playlists": listen})
+
+
 @app.post("/api/settings")
 async def set_settings(request: Request) -> JSONResponse:
     payload = await request.json()
