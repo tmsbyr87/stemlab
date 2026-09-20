@@ -847,23 +847,23 @@ def test_lyrics_zeigt_geschaetzten_fortschritt(html):
         "Die Schätzung darf nicht bei 100 % ankommen, bevor sie fertig ist"
 
 
-def test_lyrics_stehen_in_der_rechten_spalte(html):
-    """Der Text gehört zum Track – dann soll er dort stehen, wo alles
-    andere zum Track steht, statt hinter einem Aufklapper in der Karte."""
+def test_lyrics_stehen_in_der_karte(html):
+    """Analyse, Tags und Export beschreiben den Track – der Songtext ist
+    ein Inhalt und gehört zum Song, wie die Akkorde. In der Reiterleiste
+    daneben stand er quer zu allem anderen."""
     liste = re.search(r"const REITER = \[(.*?)\];", html, re.S)
-    assert liste and "'text'" in liste.group(1), \
-        "Die rechte Spalte braucht einen Reiter für den Text"
-    assert re.search(r"function reiterText\(", html)
-    # Und der Reiter muss auch aufgerufen werden.
-    assert re.search(r"state\.infoReiter === 'text'\) reiterText\(", html), \
-        "Der Text-Reiter muss verdrahtet sein"
+    assert liste, "Die Reiterleiste fehlt"
+    assert "'text'" not in liste.group(1), \
+        "Der Text gehört nicht in die Eigenschaften-Reiter"
+    assert re.search(r"togglePanel\(e, '\.lyrics-panel'", html), \
+        "Der Text klappt in der Karte auf, wie die Akkorde"
 
 
 def test_lyrics_bleiben_anklickbar(html):
     """Ein Klick auf eine Zeile springt an die Stelle im Song. Das ist der
     eigentliche Nutzen – ohne ihn wäre es nur eine Textdatei."""
-    fn = re.search(r"function reiterText\(.*?\n\}", html, re.S)
-    assert fn, "Der Text-Reiter fehlt"
+    fn = re.search(r"async function loadLyrics\(.*?\n\}", html, re.S)
+    assert fn, "Der Text-Aufklapper fehlt"
     assert "seek" in fn.group(0), "Die Zeilen müssen an die Stelle springen"
 
 
@@ -881,24 +881,29 @@ def test_lyrics_und_text_sind_ein_knopf(html):
 
     # Er muss sichtbar sein, auch wenn noch kein Text existiert – sonst
     # käme man gar nicht erst zum Transkribieren.
-    assert re.search(r"lyricsBtn\.hidden = false", html), \
+    assert re.search(r"^  lyricsBtn\.hidden = false;$", html, re.M), \
         "Der Knopf gehört auch ohne vorhandenen Text angezeigt"
 
-    # Und er muss in den Text-Reiter führen, nicht irgendwohin.
-    assert re.search(r"state\.infoReiter = 'text'; renderInfospalte\(\)", html), \
-        "Der Knopf muss den Text-Reiter öffnen"
+    # Und er muss den Text in der Karte aufklappen, nicht irgendwohin führen.
+    assert re.search(r"mk\('Text', \(b\) => togglePanel\(e, '\.lyrics-panel'", html), \
+        "Der Knopf muss den Text in der Karte aufklappen"
 
 
 def test_textknopf_bietet_transkription_an_wenn_nichts_da_ist(html):
-    """Ohne Text ist der Reiter nicht leer, sondern führt zum nächsten
-    Schritt – mit der Sprachwahl, die vorher im Lyrics-Aufklapper stand."""
-    fn = re.search(r"async function reiterText\(.*?\n\}", html, re.S)
-    assert fn, "Der Text-Reiter fehlt"
+    """Ohne Text ist der Aufklapper nicht leer, sondern führt zum nächsten
+    Schritt – mit der Sprachwahl."""
+    fn = re.search(r"async function loadLyrics\(.*?\n\}\n", html, re.S)
+    assert fn, "Der Text-Aufklapper fehlt"
     assert re.search(r"el\('button', 'btn sm', 'Transkribieren'\)", fn.group(0)), \
         "Ohne Text muss der Reiter das Transkribieren anbieten"
     assert "language" in fn.group(0), "Die Sprachwahl gehört dazu"
     assert re.search(r"kind: 'lyrics'", fn.group(0)), \
         "Der Knopf muss die Transkription auch starten"
+    # Nach dem Transkribieren soll der nächste Klick den fertigen Text
+    # holen. Bleibt das Panel als geladen vermerkt, sieht man für immer
+    # das Formular – obwohl der Text längst daneben liegt.
+    assert re.search(r"p\.dataset\.loaded = '';", fn.group(0)), \
+        "Das Formular darf sich nicht als geladener Inhalt merken"
 
 
 # --------------------------------------------------------------------------- #

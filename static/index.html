@@ -405,7 +405,34 @@
   .popover.show{display:flex}
   .popover input[type=number],.popover input[type=text],.popover select{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font:inherit;font-size:12.5px;width:88px}
   .popover input[type=text]{width:200px}
-  .panel{margin-top:9px;padding:11px 13px;border:1px solid var(--line);border-radius:11px;background:var(--panel-2);display:none}
+  /* Beschreibung: eine Wertetabelle, kein Fließtext. Feste Spalte für die
+   Feldnamen, damit die Werte auf einer Kante stehen und sich der Block
+   überfliegen lässt. */
+.beschr{display:grid;gap:9px}
+.beschr-zeile{display:grid;grid-template-columns:116px 1fr;gap:14px;align-items:baseline}
+.beschr-zeile b{color:var(--muted);font-weight:600;font-size:11.5px;letter-spacing:.01em}
+.beschr-zeile span{line-height:1.5}
+.beschr-fuss{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px;padding-top:11px;border-top:1px solid var(--line)}
+.beschr-fuss small{color:var(--muted)}
+
+/* Das Angebot, wenn es noch keine Beschreibung gibt: Erklärung, Eingabe,
+   Knopf – jedes auf eigener Zeile, mit Luft dazwischen. */
+.beschr-start{display:grid;gap:12px;max-width:62ch}
+.beschr-start p{margin:0;line-height:1.55;color:var(--text-2)}
+.beschr-start .beschr-los{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.beschr-start .beschr-los small{color:var(--muted)}
+/* Das Eingabefeld erbt sonst die 200px der Popover-Felder und wirkt darin
+   eingezwängt – hier hat es die volle Breite des Blocks. */
+.beschr-panel input[type=text]{width:100%;margin:0;padding:9px 11px;font-size:13px}
+
+/* Fehlender Schlüssel: eine kurze Anleitung, kein Fehlertext. */
+.beschr-hinweis{display:grid;gap:10px;max-width:62ch}
+.beschr-hinweis p{margin:0;line-height:1.55}
+.beschr-hinweis code{display:block;padding:9px 11px;background:var(--bg);border:1px solid var(--line);border-radius:7px;font-size:12px;overflow-x:auto}
+
+/* Während das Modell hört. */
+.beschr-warte{display:flex;align-items:center;gap:9px;color:var(--muted);padding:4px 0}
+.panel{margin-top:9px;padding:11px 13px;border:1px solid var(--line);border-radius:11px;background:var(--panel-2);display:none}
   /* ---------- Einstellungen (Lightbox) ---------- */
   /* Ein eigener Dialog statt einer langen Liste in der Seite: links die
      Bereiche, rechts nur der gewählte. So bleibt der Blick auf das Wesentliche
@@ -1509,7 +1536,7 @@ function jobCard(d) {
   e.innerHTML = `<div class="head"><div style="min-width:0"><div class="name"></div><div class="meta"></div></div><div class="state"></div></div>
     <div class="facts" hidden></div><div class="bar-p"><i></i></div><div class="log"></div>
     <div class="mixer" hidden></div><div class="files" hidden></div><div class="actions" hidden></div><div class="popover"></div>
-    <div class="panel chords-panel"></div><div class="panel tags-panel"></div><div class="panel lyrics-panel"></div>`;
+    <div class="panel beschr-panel"></div><div class="panel chords-panel"></div><div class="panel tags-panel"></div><div class="panel lyrics-panel"></div>`;
   $('jobs').prepend(e); state.jobs.set(d.id, e); $('jobs-card').hidden = false;
   return e;
 }
@@ -1560,6 +1587,23 @@ function renderJob(d) {
   // während einer Trennung nie läuft: "In Arbeit" erschien genau dann
   // nicht, wenn es gebraucht wurde.
   renderSeitenleiste();
+  // Eine fertige Beschreibung gleich zeigen – sie war das, worauf man
+  // gewartet hat. Die Aktion hat eine eigene Karte, das offene Panel hängt
+  // aber an der Karte des Songs: also über den Ordner dorthin finden.
+  if (d.kind === 'beschreibung' && d.status === 'done' && state.wartetAufBeschreibung?.has(d.folder)) {
+    state.wartetAufBeschreibung.delete(d.folder);
+    // Die Karte des Songs suchen – die Aktion hat eine eigene.
+    for (const karte of state.jobs.values()) {
+      if (!karte.querySelector || karte.dataset.folder !== d.folder) continue;
+      const panel = karte.querySelector('.beschr-panel');
+      if (!panel) continue;
+      panel.dataset.loaded = '1';
+      panel.classList.add('show');
+      const knopf = [...karte.querySelectorAll('.actions button')].find(b => b.textContent.trim() === 'Beschreibung');
+      if (knopf) knopf.classList.add('on');
+      ladeBeschreibung(karte, { folder: d.folder });
+    }
+  }
   const hatInhalt = d.files.length || (d.extras || []).some(x => base(x) === 'original.wav');
   if (d.status === 'done' && hatInhalt && !e.dataset.filled) {
     e.dataset.filled = '1';
@@ -1619,15 +1663,16 @@ function buildResult(e, d) {
     go.onclick = () => run('mix', { gains: mixer.gainsForExport(), label: name.value }, 'Mix-Export gestartet.');
     p.append('Pegel und Stummschaltungen aus dem Mixer:', name, go);
   }));
+  // Beschreibung: was sich nicht rechnen lässt – Stimmung, Genre, Produktion.
+  // Fragt ein Sprachmodell und gibt ihm die gemessenen Werte als Grundlage
+  // mit, damit es Tempo und Tonart nicht neu rät.
+  const beschrBtn = mk('Beschreibung', (b) => togglePanel(e, '.beschr-panel', () => ladeBeschreibung(e, d), b));
   const chordsBtn = mk('Akkorde', (b) => togglePanel(e, '.chords-panel', () => loadChords(e, d), b));
   // Ein Knopf für den gesungenen Text: Er führt in die rechte Spalte, die
   // ihn zeigt oder das Transkribieren anbietet. Zwei Knöpfe – einer zum
   // Erzeugen, einer zum Ansehen – waren eine Trennung, die nur die Technik
   // kennt.
-  const lyricsBtn = mk('Text', () => {
-    state.infoTrack = d; state.infoReiter = 'text'; renderInfospalte();
-    $('infospalte').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  });
+  const lyricsBtn = mk('Text', (b) => togglePanel(e, '.lyrics-panel', () => loadLyrics(e, d), b));
   // Immer sichtbar: Ohne Text führt der Knopf zum Transkribieren.
   lyricsBtn.hidden = false;
   chordsBtn.hidden = !(d.extras || []).some(x => base(x) === 'analysis.json');
@@ -1804,6 +1849,88 @@ async function loadTags(e, d) {
   await load();
 }
 
+// Die Beschreibung zeigen, oder sie anbieten, wenn es noch keine gibt.
+const BESCHR_FELDER = [
+  ['genre', 'Genre'], ['subgenres', 'Subgenres'], ['stimmung', 'Stimmung'],
+  ['thema', 'Thema'], ['emotionaler_bogen', 'Verlauf'], ['struktur', 'Struktur'],
+  ['instrumentierung', 'Instrumente'], ['vocals', 'Vocals'],
+  ['produktionsstil', 'Produktion'], ['referenzen', 'Klingt nach'],
+  ['einsatz', 'Einsatz'],
+];
+
+async function ladeBeschreibung(e, d) {
+  const p = e.querySelector('.beschr-panel');
+  p.innerHTML = '<span style="color:var(--muted)">lade …</span>';
+
+  // Den Status frisch holen: SET wird erst beim Öffnen der Einstellungen
+  // gefüllt, die Karte hier kann aber vorher dran sein.
+  let cfg = {};
+  try { cfg = (await api('/api/settings')).beschreibung || {}; } catch (err) { /* unten abgefangen */ }
+  let vorhanden = null;
+  try {
+    vorhanden = await (await fetch('/api/text?path=' + encodeURIComponent(d.folder + '/beschreibung.json'))).json();
+  } catch (err) { /* noch keine – dann bieten wir sie an */ }
+
+  p.innerHTML = '';
+
+  if (vorhanden && vorhanden.genre) {
+    const liste = el('div', 'beschr');
+    for (const [key, titel] of BESCHR_FELDER) {
+      const wert = vorhanden[key];
+      if (!wert || (Array.isArray(wert) && !wert.length)) continue;
+      const zeile = el('div', 'beschr-zeile');
+      zeile.append(el('b', null, titel), el('span', null, Array.isArray(wert) ? wert.join(', ') : wert));
+      liste.appendChild(zeile);
+    }
+    p.appendChild(liste);
+    const fuss = el('div', 'beschr-fuss');
+    fuss.append(el('small', null, 'erstellt von ' + (vorhanden.modell || 'einem Sprachmodell')));
+    const neu = el('button', 'btn sm', 'Neu erstellen');
+    neu.onclick = () => starteBeschreibung(e, d, p, '');
+    fuss.appendChild(neu);
+    p.appendChild(fuss);
+    return;
+  }
+
+  if (!cfg.verfuegbar) {
+    const hinweis = el('div', 'beschr-hinweis');
+    hinweis.append(
+      el('p', null, 'Dafür braucht StemLab einen Schlüssel für ' + (cfg.anbieter === 'openai' ? 'OpenAI' : 'Google Gemini') + '. Kostenlos anlegen auf aistudio.google.com.'),
+      el('p', null, 'Dann in die Datei .env im Projektordner eintragen:'),
+      el('code', null, (cfg.schluessel_variable || 'GEMINI_API_KEY') + '=dein-schlüssel'),
+      el('p', null, 'Danach StemLab einmal neu starten.'),
+    );
+    p.appendChild(hinweis);
+    return;
+  }
+
+  const box = el('div', 'beschr-start');
+  const kontext = el('input');
+  kontext.type = 'text';
+  kontext.placeholder = 'Hinweis an das Modell (optional), z. B. „Demo von 2019“';
+  const go = el('button', 'btn sm', 'Beschreiben');
+  go.onclick = () => starteBeschreibung(e, d, p, kontext.value);
+  const los = el('div', 'beschr-los');
+  los.append(go, el('small', null, (cfg.modell || '–') + ' · dauert rund eine halbe Minute'));
+  box.append(
+    el('p', null, 'Ein Sprachmodell hört sich den Song an und beschreibt Genre, Instrumente, Aufbau und Klangbild. Tempo und Tonart bekommt es aus der Messung – es rät sie nicht neu.'),
+    kontext, los,
+  );
+  p.appendChild(box);
+}
+
+function starteBeschreibung(e, d, p, kontext) {
+  // Am Ordner merken, nicht an der Karte: Die Karte wird beim nächsten
+  // Job-Ereignis neu aufgebaut, der Merker wäre dann weg.
+  state.wartetAufBeschreibung = state.wartetAufBeschreibung || new Set();
+  state.wartetAufBeschreibung.add(d.folder);
+  p.innerHTML = '';
+  p.appendChild(el('div', 'beschr-warte', 'Das Modell hört sich den Song an – das dauert einen Moment …'));
+  api('/api/actions', { kind: 'beschreibung', folder: d.folder, params: { kontext: kontext || '' } })
+    .then(() => toast('Beschreibung gestartet.'))
+    .catch(err => { toast(err.message, true); ladeBeschreibung(e, d); });
+}
+
 async function loadChords(e, d) {
   const p = e.querySelector('.chords-panel'); p.innerHTML = '<span style="color:var(--muted)">lade …</span>';
   try { const a = await (await fetch('/api/text?path=' + encodeURIComponent(d.folder + '/analysis.json'))).json();
@@ -1812,13 +1939,62 @@ async function loadChords(e, d) {
     p.innerHTML = ''; p.appendChild(grid); e._chordCells = [...grid.children];
   } catch (err) { p.textContent = 'Akkorde nicht verfügbar.'; }
 }
+/* Der gesungene Text klappt in der Karte auf, wie die Akkorde. Er gehört
+   zum Song – die Reiter daneben (Analyse, Tags, Export) beschreiben den
+   Track, ein Songtext ist ein Inhalt und stand dort quer zu allem anderen.
+
+   Ein Aufklapper für beides: Ist Text da, zeigt er ihn; fehlt er, bietet
+   er das Transkribieren an. Wer den Text eines Songs will, denkt nicht in
+   "erzeugen" und "ansehen". */
 async function loadLyrics(e, d) {
   const p = e.querySelector('.lyrics-panel'); p.innerHTML = '<span style="color:var(--muted)">lade …</span>';
-  try { const l = await (await fetch('/api/text?path=' + encodeURIComponent(d.folder + '/lyrics.json'))).json();
-    if (!l.segments || !l.segments.length) { p.textContent = 'Kein gesungener Text erkannt.'; return; }
-    const box = el('div', 'lyrics'); l.segments.forEach(s => { const x = el('div'); x.dataset.start = s.start; x.dataset.end = s.end; x.innerHTML = `<span>${fmtTime(s.start)}</span>`; x.append(s.text); x.onclick = () => { const m = state.mixers.get(d.id); if (m) m.seek(s.start); }; box.appendChild(x); });
-    p.innerHTML = ''; p.appendChild(box); e._lyricLines = [...box.children];
-  } catch (err) { p.textContent = 'Lyrics nicht verfügbar.'; }
+  let l = null;
+  try { l = await (await fetch('/api/text?path=' + encodeURIComponent(d.folder + '/lyrics.json'))).json(); }
+  catch (_) { l = null; }
+  p.innerHTML = '';
+
+  if (!l || !l.segments || !l.segments.length) {
+    p.append(Object.assign(el('div'), {
+      textContent: 'Noch kein Text für diesen Song.',
+      style: 'color:var(--muted);font-size:12.5px;margin-bottom:9px' }));
+    const lang = el('select');
+    lang.innerHTML = '<option value="">Sprache automatisch</option>'
+      + '<option value="de">Deutsch</option><option value="en">Englisch</option>'
+      + '<option value="es">Spanisch</option><option value="fr">Französisch</option>'
+      + '<option value="it">Italienisch</option>';
+    lang.style.cssText = 'max-width:220px;margin-right:7px';
+    const go = el('button', 'btn sm', 'Transkribieren');
+    go.onclick = async () => {
+      go.disabled = true; go.textContent = 'startet …';
+      try {
+        await api('/api/actions', { kind: 'lyrics', folder: d.folder, params: { language: lang.value } });
+        toast('Whisper gestartet – beim ersten Mal lädt es das Modell.');
+      } catch (err) { toast(err.message, true); go.disabled = false; go.textContent = 'Transkribieren'; }
+    };
+    p.append(lang, go, Object.assign(el('div'), {
+      textContent: 'Läuft auf dem Vocal-Stem, nicht auf dem Mix.',
+      style: 'color:var(--muted);font-size:11px;margin-top:8px' }));
+    // Nicht als geladen merken: Nach dem Transkribieren soll der nächste
+    // Klick den fertigen Text holen, nicht wieder dieses Formular.
+    p.dataset.loaded = '';
+    return;
+  }
+
+  if (l.language) {
+    p.append(Object.assign(el('div'), {
+      textContent: 'Sprache: ' + l.language,
+      style: 'color:var(--muted);font-size:11px;margin-bottom:8px' }));
+  }
+  const box = el('div', 'lyrics');
+  for (const seg of l.segments) {
+    const zeile = el('div');
+    zeile.dataset.start = seg.start; zeile.dataset.end = seg.end;
+    zeile.innerHTML = `<span>${fmtTime(seg.start)}</span>`;
+    zeile.append(seg.text);
+    zeile.onclick = () => { const m = state.mixers.get(d.id); if (m) m.seek(seg.start); };
+    box.append(zeile);
+  }
+  p.append(box); e._lyricLines = [...box.children];
 }
 
 /* ---------- Mixer ---------- */
@@ -2143,7 +2319,6 @@ const REITER = [
   { schluessel: 'analyse', label: 'Analyse' },
   { schluessel: 'tags',    label: 'Tags' },
   { schluessel: 'export',  label: 'Export' },
-  { schluessel: 'text',    label: 'Text' },
 ];
 
 state.infoReiter = 'analyse';
@@ -2192,66 +2367,6 @@ function reiterAnalyse(ziel, d) {
    Track steht. Bisher lag er hinter einem Aufklapper in der Karte.
    Der Klick auf eine Zeile springt an die Stelle im Song; das ist der
    eigentliche Nutzen, sonst wäre es nur eine Textdatei. */
-async function reiterText(ziel, d) {
-  const block = el('div', 'info-block');
-  block.append(Object.assign(el('div'), {
-    textContent: 'lade …', style: 'color:var(--muted);font-size:12.5px' }));
-  ziel.append(block);
-
-  let l;
-  try {
-    l = await (await fetch('/api/text?path=' + encodeURIComponent(d.folder + '/lyrics.json'))).json();
-  } catch (_) { l = null; }
-  // Die Spalte kann inzwischen einen anderen Track zeigen.
-  if (!state.infoTrack || state.infoTrack.folder !== d.folder) return;
-  block.innerHTML = '';
-
-  if (!l || !l.segments || !l.segments.length) {
-    block.append(Object.assign(el('div'), {
-      textContent: 'Noch kein Text für diesen Song.',
-      style: 'color:var(--muted);font-size:12.5px;margin-bottom:9px' }));
-    const lang = el('select');
-    lang.innerHTML = '<option value="">Sprache automatisch</option>'
-      + '<option value="de">Deutsch</option><option value="en">Englisch</option>'
-      + '<option value="es">Spanisch</option><option value="fr">Französisch</option>'
-      + '<option value="it">Italienisch</option>';
-    lang.style.cssText = 'width:100%;margin-bottom:7px';
-    const go = el('button', 'btn sm', 'Transkribieren');
-    go.style.width = '100%';
-    go.onclick = async () => {
-      go.disabled = true; go.textContent = 'startet …';
-      try {
-        await api('/api/actions', { kind: 'lyrics', folder: d.folder, params: { language: lang.value } });
-        toast('Whisper gestartet – beim ersten Mal lädt es das Modell.');
-      } catch (err) { toast(err.message, true); go.disabled = false; go.textContent = 'Transkribieren'; }
-    };
-    block.append(lang, go, Object.assign(el('div'), {
-      textContent: 'Läuft auf dem Vocal-Stem, nicht auf dem Mix.',
-      style: 'color:var(--muted);font-size:11px;margin-top:8px' }));
-    return;
-  }
-
-  if (l.language) {
-    block.append(Object.assign(el('div'), {
-      textContent: 'Sprache: ' + l.language,
-      style: 'color:var(--muted);font-size:11px;margin-bottom:8px' }));
-  }
-  const box = el('div', 'lyrics');
-  for (const seg of l.segments) {
-    const zeile = el('div');
-    zeile.dataset.start = seg.start; zeile.dataset.end = seg.end;
-    zeile.innerHTML = `<span>${fmtTime(seg.start)}</span>`;
-    zeile.append(seg.text);
-    zeile.onclick = () => {
-      const m = state.mixers.get(d.id)
-        || [...state.mixers.values()].find(x => x.d && x.d.folder === d.folder);
-      if (m) m.seek(seg.start);
-    };
-    box.append(zeile);
-  }
-  block.append(box);
-}
-
 function reiterHinweis(ziel, text) {
   const block = el('div', 'info-block');
   block.append(Object.assign(el('div'), {
@@ -2422,7 +2537,6 @@ function renderInfospalte() {
   const inhalt = el('div');
   if (state.infoReiter === 'analyse') reiterAnalyse(inhalt, d);
   else if (state.infoReiter === 'tags') reiterTags(inhalt, d);
-  else if (state.infoReiter === 'text') reiterText(inhalt, d);
   else reiterExport(inhalt, d);
   spalte.append(inhalt);
   notizfeld(spalte, d);
