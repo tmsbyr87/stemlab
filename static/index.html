@@ -119,41 +119,6 @@
   /* Ein Merkmal je Zeile: links der Name, rechts der Median, darunter ein
      Band, das Spannweite und Kernbereich zeigt. Eine Zahl allein täuscht
      Genauigkeit vor, die bei 24 Tracks nicht da ist. */
-  /* Arrangement: eine Zeile je Stem über der Zeit, darüber Taktleiste und
-     Abschnitte. Der Aufbau folgt dem, was Produzenten aus ihrer DAW kennen –
-     links die Namen, rechts die Spuren auf gemeinsamer Zeitachse. */
-  .arrangement-panel .arr{grid-template-columns:96px 1fr;font-size:12px}
-  .arrangement-panel .arr .spur{height:34px}
-  .arrangement-panel .arr .abschnitte{height:24px}
-  .arrangement-panel .arr .abschnitte u{font-size:11px;padding:0 7px}
-  .arrangement-panel .arr .kopf{height:18px}
-  .arrangement-panel .arr .kopf span{font-size:10.5px}
-  .arr{display:grid;grid-template-columns:76px 1fr;gap:0 8px;font-size:11px}
-  .arr .kopf{grid-column:2;position:relative;height:16px;border-bottom:1px solid var(--line)}
-  .arr .kopf i{position:absolute;top:0;bottom:0;width:1px;background:var(--line-2)}
-  .arr .kopf i.stark{background:var(--muted)}
-  .arr .kopf span{position:absolute;top:1px;font-size:9.5px;color:var(--muted);
-                  transform:translateX(2px);font-variant-numeric:tabular-nums}
-  .arr .lbl{display:flex;align-items:center;color:var(--text-2);padding:3px 0;
-            overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .arr .lbl i{width:7px;height:7px;border-radius:50%;margin-right:6px;flex:none;
-              background:var(--sc,var(--accent))}
-  /* Die Spur ist flächig in der Stem-Farbe, die Wellenform steht dunkel
-     darin – so wie in einer DAW. Dünne Balken auf grauem Grund ließen die
-     Struktur nur erahnen; gefüllt sieht man sofort, wann eine Spur läuft. */
-  .arr .spur{position:relative;height:22px;border-radius:5px;
-             background:var(--sc,var(--accent));overflow:hidden;cursor:pointer;margin:2px 0}
-  .arr .spur b{position:absolute;top:50%;transform:translateY(-50%);width:1px;
-               background:var(--wave-ink,rgba(0,0,0,.55));border-radius:1px}
-  .arr .spur.leer{background:var(--panel-3)}
-  /* Abschnitte als eigene Spur: Sie ordnen alles darunter ein. */
-  .arr .abschnitte{position:relative;height:19px;margin:0 0 4px;cursor:pointer}
-  .arr .abschnitte u{position:absolute;top:0;bottom:0;border-radius:4px;
-                     display:flex;align-items:center;padding:0 5px;font-size:9.5px;
-                     text-decoration:none;color:var(--text);overflow:hidden;
-                     white-space:nowrap;border:1px solid var(--line)}
-  .arr-hinweis{margin-top:9px;color:var(--muted);font-size:11px;line-height:1.5}
-
   .pz{display:grid;grid-template-columns:130px 1fr 92px;gap:12px;align-items:center;
       padding:9px 0;border-bottom:1px solid var(--line)}
   .pz:last-child{border-bottom:0}
@@ -383,6 +348,27 @@
   .transport .grow{flex:1}
   .hint{color:var(--muted);font-size:11px}
   .track{display:grid;grid-template-columns:30px 118px 30px 30px 88px 1fr;gap:8px;align-items:center;padding:5px 0}
+  /* Taktleiste und Abschnitte liegen im selben Raster wie die Spuren –
+     nur so sitzen die Takte genau über der Wellenform. Die ersten fünf
+     Spalten bleiben leer, die Bahn nimmt die letzte ein. */
+  .mx-kopf,.mx-takte,.mx-abschnitte{display:grid;grid-template-columns:30px 118px 30px 30px 88px 1fr;gap:8px}
+  .mx-bahn{position:relative;grid-column:6}
+  .mx-takte{height:15px;margin-bottom:1px}
+  .mx-takte .mx-bahn{border-bottom:1px solid var(--line)}
+  .mx-takte i{position:absolute;top:4px;bottom:0;width:1px;background:var(--line-2)}
+  .mx-takte span{position:absolute;top:0;font-size:9.5px;color:var(--muted);
+                 transform:translateX(3px);font-variant-numeric:tabular-nums}
+  .mx-abschnitte{height:20px;margin-bottom:3px}
+  .mx-abschnitte u{position:absolute;top:0;bottom:0;border-radius:4px;display:flex;
+                   align-items:center;padding:0 6px;font-size:10px;text-decoration:none;
+                   color:var(--text);overflow:hidden;white-space:nowrap;cursor:pointer;
+                   border:1px solid var(--line)}
+  .mx-abschnitte u:hover{border-color:var(--accent)}
+  @media (max-width:760px){
+    .mx-kopf,.mx-takte,.mx-abschnitte{grid-template-columns:1fr}
+    .mx-bahn{grid-column:1}
+    .mx-spacer{display:none}
+  }
   .track .n{font-weight:600;font-size:13px;text-transform:capitalize;display:flex;align-items:center;gap:8px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
   .track .n i{width:8px;height:8px;border-radius:50%;background:var(--sc,var(--accent));flex:none}
   .track.orig .n{color:var(--muted)}
@@ -1510,8 +1496,7 @@ function jobCard(d) {
   e.innerHTML = `<div class="head"><div style="min-width:0"><div class="name"></div><div class="meta"></div></div><div class="state"></div></div>
     <div class="facts" hidden></div><div class="bar-p"><i></i></div><div class="log"></div>
     <div class="mixer" hidden></div><div class="files" hidden></div><div class="actions" hidden></div><div class="popover"></div>
-    <div class="panel chords-panel"></div><div class="panel tags-panel"></div><div class="panel lyrics-panel"></div>
-    <div class="panel arrangement-panel"></div>`;
+    <div class="panel chords-panel"></div><div class="panel tags-panel"></div><div class="panel lyrics-panel"></div>`;
   $('jobs').prepend(e); state.jobs.set(d.id, e); $('jobs-card').hidden = false;
   return e;
 }
@@ -1621,10 +1606,6 @@ function buildResult(e, d) {
     go.onclick = () => run('mix', { gains: mixer.gainsForExport(), label: name.value }, 'Mix-Export gestartet.');
     p.append('Pegel und Stummschaltungen aus dem Mixer:', name, go);
   }));
-  // Der Aufbau gehört in die Karte, nicht in die schmale Infospalte: Bei
-  // sieben Spuren bleibt dort je 22 px Höhe, und ein Takt wäre keine zwei
-  // Pixel breit. Struktur sieht man so nicht.
-  mk('Aufbau', (b) => togglePanel(e, '.arrangement-panel', () => zeichneArrangement(e.querySelector('.arrangement-panel'), d), b));
   const chordsBtn = mk('Akkorde', (b) => togglePanel(e, '.chords-panel', () => loadChords(e, d), b));
   // Ein Knopf für den gesungenen Text: Er führt in die rechte Spalte, die
   // ihn zeigt oder das Transkribieren anbietet. Zwei Knöpfe – einer zum
@@ -1843,11 +1824,15 @@ class Mixer {
     const nurEineSpur = paths.length < 2;
     root.innerHTML = `<div class="transport"><button class="play" title="${nurEineSpur ? 'Abspielen' : 'Gesamtmix abspielen'}">${ICON_PLAY}</button><span class="time">0:00 / –:––</span>
       <span class="hint">▶ links neben einer Spur hört nur diesen Stem</span><span class="grow"></span>
-      <button class="ghost sm ab" title="Original gegen den aktuellen Mix hören">A/B Original</button></div><div class="tracks${nurEineSpur ? ' nur-eine' : ''}"></div>`;
+      <button class="ghost sm ab" title="Original gegen den aktuellen Mix hören">A/B Original</button></div>
+      <div class="mx-abschnitte" hidden></div>
+      <div class="mx-takte" hidden></div>
+      <div class="tracks${nurEineSpur ? ' nur-eine' : ''}"></div>`;
     this.playBtn = root.querySelector('.play'); this.timeEl = root.querySelector('.time'); this.abBtn = root.querySelector('.ab');
     this.playBtn.onclick = () => { if (this.playing && !this.audition) { this.pause(); return; } this.audition = null; this.applyGains(); this.updateButtons(); if (!this.playing) this.play(); else this.render(); };
     this.abBtn.onclick = () => this.toggleAB(); this.abBtn.hidden = !orig || nurEineSpur;
     const hinweis = root.querySelector('.hint'); hinweis.hidden = nurEineSpur;
+    this.zeichneKopfzeilen(d);
     const tl = root.querySelector('.tracks');
     for (const path of paths) {
       const stem = path === orig ? 'original' : stemOf(path);
@@ -1899,6 +1884,56 @@ class Mixer {
     // der Pegelunterschied bleibt als sanfte Stauchung erkennbar: leiseste Spur noch 55 % Höhe.
     for (const t of this.tracks) { t.scale = t.max ? (0.55 + 0.45 * Math.sqrt(t.max / this.ref)) / t.max : 0; this.draw(t); }
   }
+  /* Taktleiste und Abschnitte über den Spuren. Der Mixer zeigt die Spuren
+     ohnehin – mit Solo, Mute und Pegel. Was fehlte, war die Einordnung:
+     Bei welchem Takt bin ich, wo liegt der Drop?
+
+     Beide Zeilen liegen im selben Raster wie die Spuren, damit die Takte
+     genau über der Wellenform sitzen. */
+  zeichneKopfzeilen(d) {
+    const a = (d && d.analysis) || {};
+    const takte = a.downbeats || 0;
+    const segmente = a.segments || [];
+    const leer = () => { const x = el('div'); x.className = 'mx-spacer'; return x; };
+
+    if (segmente.length && takte) {
+      const zeile = this.root.querySelector('.mx-abschnitte');
+      zeile.hidden = false;
+      zeile.innerHTML = '';
+      for (let i = 0; i < 5; i++) zeile.append(leer());
+      const bahn = el('div', 'mx-bahn');
+      for (const seg of segmente) {
+        const kasten = el('u', null, `${seg.art} · ${seg.takte}`);
+        kasten.style.left = (seg.takt_von - 1) / takte * 100 + '%';
+        kasten.style.width = Math.max(seg.takte / takte * 100, 2) + '%';
+        kasten.style.background = ABSCHNITT_FARBE[seg.art] || 'var(--panel-3)';
+        kasten.title = `${seg.art}, Takt ${seg.takt_von}–${seg.takt_von + seg.takte - 1}`;
+        kasten.onclick = () => this.seek((seg.takt_von - 1) / takte * (this.duration || 0));
+        bahn.append(kasten);
+      }
+      zeile.append(bahn);
+    }
+
+    if (takte > 8) {
+      const zeile = this.root.querySelector('.mx-takte');
+      zeile.hidden = false;
+      zeile.innerHTML = '';
+      for (let i = 0; i < 5; i++) zeile.append(leer());
+      const bahn = el('div', 'mx-bahn');
+      // Acht- und Sechzehnergruppen sind das Raster, in dem Tanzmusik
+      // gebaut ist. Bei langen Tracks größere Schritte, sonst klebt die
+      // Beschriftung aneinander.
+      const schritt = takte > 200 ? 32 : 16;
+      for (let t = 1; t <= takte; t += schritt) {
+        const x = (t - 1) / takte * 100;
+        const strich = el('i'); strich.style.left = x + '%';
+        const zahl = el('span', null, String(t)); zahl.style.left = x + '%';
+        bahn.append(strich, zahl);
+      }
+      zeile.append(bahn);
+    }
+  }
+
   draw(t) {
     const c = t.canvas, dpr = window.devicePixelRatio || 1, w = c.clientWidth || 600, h = c.clientHeight || 44;
     t.wfWidth = w;
@@ -2169,117 +2204,6 @@ const ABSCHNITT_FARBE = {
   'Breakdown': 'var(--panel-3)',
   'Outro':     'var(--panel-2)',
 };
-
-/* Das Arrangement: eine Zeile je Stem über der Zeit, darüber Taktleiste und
-   Abschnitte. Gebaut aus waveform.json, das ohnehin erzeugt wird – 1200
-   Stützstellen je Spur reichen, um zu sehen, wann was spielt.
-
-   Ohne Strukturdaten entfällt die Abschnittsspur; die Stem-Zeilen bleiben
-   nützlich, denn sie zeigen den Aufbau auch ohne Benennung. */
-async function zeichneArrangement(ziel, d) {
-  const block = el('div', 'info-block');
-  block.append(Object.assign(el('div'), {
-    textContent: 'lade …', style: 'color:var(--muted);font-size:12.5px' }));
-  ziel.append(block);
-
-  let wf = null;
-  try {
-    wf = await (await fetch('/api/text?path=' + encodeURIComponent(d.folder + '/waveform.json'))).json();
-  } catch (_) { wf = null; }
-  if (!state.infoTrack || state.infoTrack.folder !== d.folder) return;
-  block.innerHTML = '';
-
-  const spuren = Object.entries(wf || {}).filter(([n, v]) => Array.isArray(v) && v.length);
-  if (!spuren.length) {
-    block.append(Object.assign(el('div'), {
-      textContent: 'Keine Wellenformdaten für diesen Track.',
-      style: 'color:var(--muted);font-size:12.5px' }));
-    return;
-  }
-
-  const a = d.analysis || {};
-  const takte = a.downbeats || 0;
-  const segmente = a.segments || [];
-  const dauer = a.seconds_analyzed || 0;
-
-  const gitter = el('div', 'arr');
-
-  // Taktleiste: Striche alle 16 Takte, beschriftet. Tanzmusik ist in
-  // Acht- und Sechzehnergruppen gebaut – eine Skala in Sekunden hülfe
-  // beim Auflegen, nicht beim Nachbauen.
-  if (takte > 8) {
-    gitter.append(el('div'));                       // leere Ecke links
-    const kopf = el('div', 'kopf');
-    const schritt = takte > 200 ? 32 : 16;
-    for (let t = 1; t <= takte; t += schritt) {
-      const x = (t - 1) / takte * 100;
-      const strich = el('i', (t - 1) % (schritt * 2) === 0 ? 'stark' : null);
-      strich.style.left = x + '%';
-      kopf.append(strich);
-      const zahl = el('span', null, String(t));
-      zahl.style.left = x + '%';
-      kopf.append(zahl);
-    }
-    gitter.append(kopf);
-  }
-
-  const springe = (anteil) => {
-    const m = state.mixers.get(d.id)
-      || [...state.mixers.values()].find(x => x.d && x.d.folder === d.folder);
-    if (m && dauer) m.seek(anteil * dauer);
-  };
-
-  // Abschnitte als eigene Spur – sie ordnen alles darunter ein.
-  if (segmente.length && takte) {
-    gitter.append(Object.assign(el('div', 'lbl'), { textContent: 'Aufbau' }));
-    const spur = el('div', 'abschnitte');
-    for (const seg of segmente) {
-      const von = (seg.takt_von - 1) / takte;
-      const breite = seg.takte / takte;
-      const kasten = el('u', null, `${seg.art} · ${seg.takte}`);
-      kasten.style.left = von * 100 + '%';
-      kasten.style.width = Math.max(breite * 100, 2) + '%';
-      kasten.style.background = ABSCHNITT_FARBE[seg.art] || 'var(--panel-3)';
-      kasten.title = `${seg.art}, Takt ${seg.takt_von}–${seg.takt_von + seg.takte - 1}`;
-      kasten.onclick = (ev) => { ev.stopPropagation(); springe(von); };
-      spur.append(kasten);
-    }
-    gitter.append(spur);
-  }
-
-  // Je Stem eine Zeile. Die Balkenhöhe folgt dem Pegel – so sieht man,
-  // wann eine Spur einsetzt und wann sie aussetzt.
-  for (const [name, werte] of spuren) {
-    const stem = name.replace(/\.[^.]+$/, '').toLowerCase();
-    const lbl = el('div', 'lbl');
-    lbl.style.setProperty('--sc', COLOR[stem] || 'var(--muted)');
-    lbl.append(el('i'), stem === 'original' ? 'Original' : stem);
-
-    const spur = el('div', 'spur');
-    spur.style.setProperty('--sc', COLOR[stem] || 'var(--muted)');
-    const hoechst = Math.max(...werte) || 1;
-    // In der Karte ist Platz für mehr Balken als in einer schmalen Spalte.
-    const breite = spur.clientWidth || ziel.clientWidth || 600;
-    const n = Math.min(werte.length, Math.max(120, Math.round(breite / 3)));
-    for (let i = 0; i < n; i++) {
-      const wert = werte[Math.floor(i / n * werte.length)];
-      const balken = el('b');
-      balken.style.left = (i / n * 100) + '%';
-      balken.style.width = (100 / n) + '%';
-      balken.style.height = Math.max(6, wert / hoechst * 86) + '%';
-      spur.append(balken);
-    }
-    spur.onclick = (ev) => springe(ev.offsetX / spur.clientWidth);
-    gitter.append(lbl, spur);
-  }
-
-  block.append(gitter);
-  if (!segmente.length) {
-    block.append(Object.assign(el('div', 'arr-hinweis'), {
-      textContent: 'Für diesen Track liegen noch keine Abschnitte vor – '
-        + 'die Struktur wird erst bei neuen Analysen bestimmt.' }));
-  }
-}
 
 function reiterHinweis(ziel, text) {
   const block = el('div', 'info-block');
