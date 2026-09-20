@@ -187,6 +187,10 @@
   .fact{display:inline-flex;align-items:baseline;gap:6px;padding:4px 10px;border-radius:8px;background:var(--panel-2);border:1px solid var(--line);font-size:12px}
   .fact b{font-weight:700;font-variant-numeric:tabular-nums}
   .fact small{color:var(--muted);font-size:10.5px}
+  .fact.unsicher b{opacity:.65}
+  .fact.unsicher small{color:var(--warn,#b8860b)}
+  td.num.unsicher{opacity:.7}
+  td.num.unsicher small{color:var(--warn,#b8860b);margin-left:2px}
   .fact .cam{margin-left:2px}
   .bar-p{position:relative;height:5px;background:var(--line);border-radius:99px;overflow:hidden;margin-top:10px}
   .bar-p i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent-2));border-radius:99px;transition:width .35s ease}
@@ -691,13 +695,15 @@ function renderTable(keepShown) {
     if (state.jobs.has(a.id)) tr.classList.add('open');
     const cam = camParse(a.camelot);
     const badges = [a.has_lyrics ? 'Text' : '', a.has_chords ? 'Akkorde' : '', a.has_loops ? 'Loops' : '', a.has_refined ? 'Vocal+' : ''].filter(Boolean);
-    tr.innerHTML = `<td class="title"></td><td class="num">${a.bpm ? a.bpm : '–'}</td><td></td>
+    const bpmUnsicher = a.bpm && a.bpm_confidence < 0.5;
+    tr.innerHTML = `<td class="title"></td><td class="num${bpmUnsicher ? ' unsicher' : ''}">${a.bpm ? a.bpm : '–'}${bpmUnsicher ? '<small>?</small>' : ''}</td><td></td>
       <td>${cam ? `<span class="cam" style="background:${camColor(cam.n, cam.mode)}">${a.camelot}</span>` : '–'}</td>
       <td class="num">${a.stems.length}</td><td class="num">${fmtTime(a.seconds)}</td><td class="num">${fmtDate(a.created)}</td>`;
     tr.children[0].append(a.name);
     if (badges.length) { const b = el('div', 'badges'); b.innerHTML = badges.map(x => `<span>${x}</span>`).join(''); tr.children[0].appendChild(b); }
     tr.children[2].textContent = a.key_de || '–';
-    tr.title = `${a.name}\n${a.bpm} BPM · ${a.key_de} (${a.camelot}) · ${a.stems.join(', ')}`;
+    tr.title = `${a.name}\n${a.bpm} BPM${bpmUnsicher ? ' (unsicher – Taktraster unklar)' : ''}`
+      + ` · ${a.key_de} (${a.camelot}) · ${a.stems.join(', ')}`;
     tr.onclick = () => openAnalysis(a);
     frag.appendChild(tr);
   }
@@ -1167,8 +1173,15 @@ function renderJob(d) {
   const facts = e.querySelector('.facts');
   if (d.analysis && d.analysis.bpm && !facts.dataset.filled) {
     facts.dataset.filled = '1'; facts.hidden = false; const a = d.analysis;
-    const bpm = el('span', 'fact'); bpm.innerHTML = `<b>${a.bpm}</b> BPM`;
-    bpm.title = `Halbes/doppeltes Tempo: ${a.bpm_alt} BPM · Sicherheit ${Math.round(a.bpm_confidence * 100)} %`
+    // Unter 0.5 zieht auch analysis._snap_bpm das Tempo nicht mehr auf glatte
+    // Werte – so tief traut der Code der Schätzung selbst nicht mehr. Dann
+    // gehört das an die Oberfläche, statt wie eine Messung dazustehen.
+    const bpmUnsicher = a.bpm_confidence < 0.5;
+    const bpm = el('span', 'fact' + (bpmUnsicher ? ' unsicher' : ''));
+    bpm.innerHTML = `<b>${a.bpm}</b> BPM` +
+      (bpmUnsicher ? `<small>unsicher${a.bpm_alt ? ` · oder ${a.bpm_alt}` : ''}</small>` : '');
+    bpm.title = (bpmUnsicher ? 'Taktraster unklar – bitte nachmessen. ' : '')
+      + `Halbes/doppeltes Tempo: ${a.bpm_alt} BPM · Sicherheit ${Math.round(a.bpm_confidence * 100)} %`
       + (a.bpm_source === 'beat_this' ? ' · erkannt mit Beat This!' : '');
     const key = el('span', 'fact'); const unsure = a.key_confidence < 0.25 && a.key_alt;
     const cam = camParse(a.camelot);
