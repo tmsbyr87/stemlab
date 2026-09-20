@@ -421,6 +421,15 @@
   .tags-grid{display:grid;grid-template-columns:120px 1fr;gap:16px;align-items:start}
   .tags-cover{display:flex;flex-direction:column;gap:6px}
   .tags-cover button{width:120px;padding:5px 6px;font-size:11.5px;white-space:nowrap}
+  /* Eine einzelne Spur: Der Abspielknopf der Zeile, Mute, Solo und der
+     Pegelregler fallen weg – oben steht bereits ein Abspielknopf, und es
+     gibt nichts gegeneinander abzuwägen. Wellenform und Abspielkopf
+     bleiben, sie zeigen, wo man im Stück ist. */
+  .tracks.nur-eine .track .tplay,
+  .tracks.nur-eine .track .ms,
+  .tracks.nur-eine .track .gain,
+  .tracks.nur-eine .track .n{display:none}
+  .tracks.nur-eine .track{grid-template-columns:1fr;gap:0}
   .tags-cover .art.ueber{border-color:var(--accent);background:var(--accent-soft)}
   .tags-cover .art{cursor:pointer;width:120px;height:120px;border-radius:10px;border:1px solid var(--line-2);
     background:var(--panel-3) center/cover no-repeat;display:grid;place-items:center;
@@ -1650,16 +1659,24 @@ class Mixer {
     this.duration = (d.analysis && d.analysis.seconds_analyzed) || 0; this.loaded = null; this.ab = false; this.audition = null;
     const orig = (d.extras || []).find(x => base(x) === 'original.wav');
     const paths = [...d.files, ...(orig ? [orig] : [])];
-    root.innerHTML = `<div class="transport"><button class="play" title="Gesamtmix abspielen">${ICON_PLAY}</button><span class="time">0:00 / –:––</span>
+    // Nach einer reinen Analyse gibt es nur das Original. Mute, Solo, Pegel
+    // und A/B setzen voraus, dass man Spuren gegeneinander abwägt – mit
+    // einer Spur gibt es nichts abzuwägen, und der Mute-Knopf schaltete nur
+    // den einzigen Ton ab.
+    const nurEineSpur = paths.length < 2;
+    root.innerHTML = `<div class="transport"><button class="play" title="${nurEineSpur ? 'Abspielen' : 'Gesamtmix abspielen'}">${ICON_PLAY}</button><span class="time">0:00 / –:––</span>
       <span class="hint">▶ links neben einer Spur hört nur diesen Stem</span><span class="grow"></span>
-      <button class="ghost sm ab" title="Original gegen den aktuellen Mix hören">A/B Original</button></div><div class="tracks"></div>`;
+      <button class="ghost sm ab" title="Original gegen den aktuellen Mix hören">A/B Original</button></div><div class="tracks${nurEineSpur ? ' nur-eine' : ''}"></div>`;
     this.playBtn = root.querySelector('.play'); this.timeEl = root.querySelector('.time'); this.abBtn = root.querySelector('.ab');
     this.playBtn.onclick = () => { if (this.playing && !this.audition) { this.pause(); return; } this.audition = null; this.applyGains(); this.updateButtons(); if (!this.playing) this.play(); else this.render(); };
-    this.abBtn.onclick = () => this.toggleAB(); this.abBtn.hidden = !orig;
+    this.abBtn.onclick = () => this.toggleAB(); this.abBtn.hidden = !orig || nurEineSpur;
+    const hinweis = root.querySelector('.hint'); hinweis.hidden = nurEineSpur;
     const tl = root.querySelector('.tracks');
     for (const path of paths) {
       const stem = path === orig ? 'original' : stemOf(path);
-      const t = { path, stem, gain: 0, mute: stem === 'original', solo: false, buffer: null, src: null, node: null };
+      // Das Original ist im Mix stumm, damit es die Stems nicht verdoppelt.
+      // Ist es die einzige Spur, muss es klingen.
+      const t = { path, stem, gain: 0, mute: stem === 'original' && !nurEineSpur, solo: false, buffer: null, src: null, node: null };
       const row = el('div', 'track' + (stem === 'original' ? ' orig' : '')); row.style.setProperty('--sc', COLOR[stem] || '#8b93a7');
       row.innerHTML = `<button class="tplay" title="Nur diesen Stem hören">${ICON_PLAY}</button>
         <div class="n"><i></i><span></span></div><button class="ms m" title="Stumm">M</button><button class="ms s" title="Solo im Mix">S</button>

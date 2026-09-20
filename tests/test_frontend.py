@@ -651,3 +651,52 @@ def test_aktionen_oeffnen_keine_zusaetzliche_karte(html):
     sie brauchen keine eigene Karte daneben."""
     assert re.search(r"schliesseAndereKarten\(e\)", html), \
         "Eine neu aufgebaute Karte muss die übrigen schließen"
+
+
+# --------------------------------------------------------------------------- #
+# Eine einzelne Spur braucht keinen Mixer
+# --------------------------------------------------------------------------- #
+
+def test_einzelne_spur_zeigt_keine_mischbedienung(html):
+    """Nach einer reinen Analyse gibt es nur das Original. Mute, Solo und
+    Pegel setzen voraus, dass man Spuren gegeneinander abwägt – mit einer
+    Spur gibt es nichts abzuwägen, und der Mute-Knopf würde nur den
+    einzigen Ton abschalten."""
+    assert re.search(r"const nurEineSpur = paths\.length < 2", html), \
+        "Der Mixer muss den Fall einer einzelnen Spur kennen"
+    assert re.search(r"\.tracks\.nur-eine", html), \
+        "Für eine einzelne Spur braucht es eine eigene Darstellung"
+
+
+def test_einzelne_spur_behaelt_die_wellenform(html):
+    """Wellenform und Abspielkopf bleiben – sie zeigen, wo man im Stück ist.
+    Nur die Mischwerkzeuge fallen weg."""
+    regel = re.search(r"\.tracks\.nur-eine[^{]*\{([^}]*)\}", html, re.S)
+    assert regel, "Die Regel fehlt"
+    assert "display:none" in regel.group(1)
+    # Die Wellenform darf nicht mit ausgeblendet werden.
+    versteckt = re.findall(r"\.tracks\.nur-eine \.track \.(\w+)", html)
+    assert "wf" not in versteckt, "Die Wellenform muss sichtbar bleiben"
+
+
+def test_einzelne_spur_ist_hoerbar(html):
+    """Das Original wird im Mix stumm geschaltet, damit es die Stems nicht
+    verdoppelt. Ist es die einzige Spur, muss diese Regel ausgesetzt werden –
+    sonst drückt man nach einer reinen Analyse auf Abspielen und hört nichts.
+    """
+    assert re.search(r"mute: stem === 'original' && !nurEineSpur", html), \
+        "Die einzige Spur darf nicht stumm starten"
+
+
+def test_einzelne_spur_ohne_ab_vergleich(html):
+    """A/B vergleicht den Mix gegen das Original. Ohne Mix gibt es nichts
+    zu vergleichen."""
+    assert re.search(r"this\.abBtn\.hidden = !orig \|\| nurEineSpur", html), \
+        "Der A/B-Knopf gehört bei einer einzelnen Spur weg"
+
+
+def test_einzelne_spur_ohne_stem_hinweis(html):
+    """„links neben einer Spur hört nur diesen Stem“ beschreibt etwas, das
+    es bei einer Spur nicht gibt."""
+    assert re.search(r"hinweis[^\n]*hidden = nurEineSpur|nurEineSpur[^\n]*hinweis", html), \
+        "Der Hinweis auf die Einzelspur-Wiedergabe gehört weg"
