@@ -420,3 +420,51 @@ def test_playlists_stehen_in_der_seitenleiste(html):
 def test_track_laesst_sich_einer_playlist_zuordnen(html):
     """Über Häkchen in der rechten Spalte, nicht über ein verstecktes Menü."""
     assert re.search(r"playlistAktion\(box\.checked \? 'hinzufuegen' : 'entfernen'", html)
+
+
+# --------------------------------------------------------------------------- #
+# Stem-Farben
+# --------------------------------------------------------------------------- #
+#
+# Diese Darstellung gab es schon, bevor der Umbau begann – festgehalten
+# wird sie hier, damit sie nicht unbemerkt verlorengeht.
+
+def test_jeder_stem_hat_eine_eigene_farbe(html):
+    """Beim Mischen greift man nach der Farbe, nicht nach dem Namen.
+    Zwei gleiche Farben machen die Zuordnung unmöglich."""
+    tabelle = re.search(r"const COLOR = \{(.*?)\};", html)
+    assert tabelle, "Die Farbtabelle fehlt"
+    farben = dict(re.findall(r"(\w+):'(#[0-9a-f]{6})'", tabelle.group(1)))
+
+    for stem in ("vocals", "drums", "bass", "other", "instrumental"):
+        assert stem in farben, f"{stem} hat keine Farbe"
+
+    # "other" und "original" teilen sich bewusst das Grau – beides ist
+    # "der Rest". Die musikalischen Spuren müssen unterscheidbar sein.
+    musikalisch = {k: v for k, v in farben.items() if k not in ("other", "original")}
+    assert len(set(musikalisch.values())) == len(musikalisch), \
+        f"Zwei Stems teilen sich eine Farbe: {musikalisch}"
+
+
+def test_wellenform_nimmt_die_farbe_des_stems(html):
+    """Sonst wären die Punkte bunt und die Spuren alle blau."""
+    assert re.search(r"getPropertyValue\('--sc'\)", html), \
+        "Die Wellenform muss die Farbe der Zeile übernehmen"
+    assert re.search(r"row\.style\.setProperty\('--sc', COLOR\[stem\]", html), \
+        "Jede Zeile muss ihre Stem-Farbe setzen"
+
+
+def test_notizfeld_steht_in_der_rechten_spalte(html):
+    """Was man sich merkt, gehört sichtbar zum Track – nicht hinter einen
+    weiteren Klick."""
+    assert re.search(r"function notizfeld\(", html)
+    assert re.search(r"notizfeld\(spalte, d\)", html), "Das Feld muss auch gezeigt werden"
+
+
+def test_notizen_werden_verzoegert_gesichert(html):
+    """Bei jedem Zeichen zu speichern wäre verschwenderisch; gar nicht zu
+    speichern, bis man klickt, verliert Text."""
+    assert re.search(r"setTimeout\(\(\) => \{\s*api\('/api/notes'", html, re.S), \
+        "Es braucht eine Verzögerung beim Tippen"
+    assert re.search(r"feld\.onblur", html), \
+        "Beim Verlassen muss sofort gesichert werden"

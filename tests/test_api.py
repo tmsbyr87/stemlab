@@ -431,3 +431,77 @@ def test_playlist_uebersteht_einen_neustart(client, tmp_path, monkeypatch):
 
     import json
     assert json.loads(pfad.read_text())["playlists"]["W"] == [str(ordner)]
+
+
+# --------------------------------------------------------------------------- #
+# Notizen
+# --------------------------------------------------------------------------- #
+#
+# Was man sich zu einem Track merkt, gehört zum Track: eine notes.txt im
+# Ergebnisordner, nicht in einer zentralen Datei. Wer den Ordner kopiert,
+# nimmt die Notiz mit; wer ihn löscht, wird sie los.
+
+def test_notiz_ist_anfangs_leer(client, tmp_path):
+    ordner = tmp_path / "Ein Song"; ordner.mkdir()
+    antwort = client.get(f"/api/notes?path={ordner}")
+    assert antwort.status_code == 200
+    assert antwort.json()["text"] == ""
+
+
+def test_notiz_schreiben_und_lesen(client, tmp_path):
+    ordner = tmp_path / "Ein Song"; ordner.mkdir()
+    client.post("/api/notes", json={"folder": str(ordner), "text": "Intro ab 1:04 kürzen"})
+
+    assert client.get(f"/api/notes?path={ordner}").json()["text"] == "Intro ab 1:04 kürzen"
+
+
+def test_notiz_liegt_im_ergebnisordner(client, tmp_path):
+    ordner = tmp_path / "Ein Song"; ordner.mkdir()
+    client.post("/api/notes", json={"folder": str(ordner), "text": "Hallo"})
+
+    assert (ordner / "notes.txt").read_text(encoding="utf-8") == "Hallo"
+
+
+def test_notiz_haelt_umlaute_und_zeilenumbrueche(client, tmp_path):
+    """Eine Notiz ist Fließtext, kein Formularfeld."""
+    ordner = tmp_path / "Ein Song"; ordner.mkdir()
+    text = "Erste Zeile: Größe prüfen\nZweite Zeile – mit Gedankenstrich\n\nDritte"
+    client.post("/api/notes", json={"folder": str(ordner), "text": text})
+
+    assert client.get(f"/api/notes?path={ordner}").json()["text"] == text
+
+
+def test_notiz_bleibt_unveraendert_erhalten(client, tmp_path):
+    """Eingerückte Zeilen und Leerzeichen am Rand sind Teil der Notiz.
+    Wer eine Liste einrückt, will sie eingerückt wiederfinden."""
+    ordner = tmp_path / "Ein Song"; ordner.mkdir()
+    text = "  eingerückt\n    tiefer\nnormal  "
+    client.post("/api/notes", json={"folder": str(ordner), "text": text})
+
+    assert client.get(f"/api/notes?path={ordner}").json()["text"] == text
+
+
+def test_notiz_ueberschreibt_statt_anzuhaengen(client, tmp_path):
+    ordner = tmp_path / "Ein Song"; ordner.mkdir()
+    client.post("/api/notes", json={"folder": str(ordner), "text": "alt"})
+
+    client.post("/api/notes", json={"folder": str(ordner), "text": "neu"})
+
+    assert client.get(f"/api/notes?path={ordner}").json()["text"] == "neu"
+
+
+def test_leere_notiz_entfernt_die_datei(client, tmp_path):
+    """Ein leerer Text soll keine leere Datei hinterlassen."""
+    ordner = tmp_path / "Ein Song"; ordner.mkdir()
+    client.post("/api/notes", json={"folder": str(ordner), "text": "etwas"})
+
+    client.post("/api/notes", json={"folder": str(ordner), "text": "   "})
+
+    assert not (ordner / "notes.txt").exists()
+    assert client.get(f"/api/notes?path={ordner}").json()["text"] == ""
+
+
+def test_notiz_ausserhalb_des_zielordners_wird_abgelehnt(client, tmp_path):
+    """Derselbe Schutz wie für alle Pfade: nichts außerhalb des Zielordners."""
+    antwort = client.post("/api/notes", json={"folder": "/etc", "text": "nein"})
+    assert antwort.status_code >= 400

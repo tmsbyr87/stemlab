@@ -688,6 +688,39 @@ def get_settings() -> JSONResponse:
     })
 
 
+@app.get("/api/notes")
+def get_notes(path: str) -> JSONResponse:
+    """Notizen liegen als notes.txt im Ergebnisordner.
+
+    Nicht in einer zentralen Datei: Wer den Ordner kopiert, nimmt die
+    Notiz mit; wer ihn löscht, wird sie los. Das entspricht dem, was das
+    Programm sonst auch tut – alles zu einem Song bleibt beieinander.
+    """
+    ordner = _allowed_result_path(path)
+    datei = ordner / "notes.txt"
+    text = ""
+    if datei.is_file():
+        try:
+            text = datei.read_text(encoding="utf-8")
+        except Exception as exc:
+            LOG.warning("Notiz nicht lesbar (%s): %s", datei, exc)
+    return JSONResponse({"text": text})
+
+
+@app.post("/api/notes")
+async def post_notes(request: Request) -> JSONResponse:
+    payload = await request.json()
+    ordner = _allowed_result_path(str(payload.get("folder", "")))
+    text = str(payload.get("text", ""))
+    datei = ordner / "notes.txt"
+    if text.strip():
+        datei.write_text(text, encoding="utf-8")
+    else:
+        # Kein leeres Blatt hinterlassen.
+        datei.unlink(missing_ok=True)
+    return JSONResponse({"text": text if text.strip() else ""})
+
+
 @app.get("/api/playlists")
 def get_playlists() -> JSONResponse:
     """Playlists sind gespeicherte Filter, keine zweite Dateiverwaltung.

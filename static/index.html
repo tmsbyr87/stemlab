@@ -1863,6 +1863,39 @@ function reiterExport(ziel, d) {
   else reiterHinweis(ziel, 'Öffne den Track in der Liste, um zu exportieren.');
 }
 
+/* Notizen: Was man sich zu einem Track merkt, gehört zum Track. Gespeichert
+   wird verzögert – wer tippt, soll nicht bei jedem Zeichen den Server
+   beschäftigen, und wer die Spalte wechselt, verliert nichts. */
+
+function notizfeld(ziel, d) {
+  const block = el('div', 'info-block');
+  block.append(Object.assign(el('div'), {
+    textContent: 'Notizen', style: 'color:var(--muted);font-size:11.5px;margin-bottom:6px' }));
+  const feld = el('textarea');
+  feld.rows = 4; feld.placeholder = 'Notizen zu diesem Track …';
+  feld.style.cssText = 'width:100%;resize:vertical;font:inherit;font-size:12.5px;padding:8px;'
+    + 'border-radius:9px;border:1px solid var(--line);background:var(--panel-2);color:var(--text)';
+  block.append(feld);
+  ziel.append(block);
+
+  const ordner = d.folder;
+  fetch('/api/notes?path=' + encodeURIComponent(ordner))
+    .then(r => r.json())
+    .then(j => { if (state.infoTrack && state.infoTrack.folder === ordner) feld.value = j.text || ''; })
+    .catch(() => {});
+
+  let timer = null;
+  const sichern = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      api('/api/notes', { folder: ordner, text: feld.value }).catch(err => toast(err.message, true));
+    }, 700);
+  };
+  feld.oninput = sichern;
+  // Beim Verlassen sofort, damit nichts verlorengeht.
+  feld.onblur = () => { clearTimeout(timer); api('/api/notes', { folder: ordner, text: feld.value }).catch(() => {}); };
+}
+
 function renderInfospalte() {
   const spalte = $('infospalte');
   const d = state.infoTrack;
@@ -1905,6 +1938,7 @@ function renderInfospalte() {
   else if (state.infoReiter === 'tags') reiterTags(inhalt, d);
   else reiterExport(inhalt, d);
   spalte.append(inhalt);
+  notizfeld(spalte, d);
 }
 
 /* ---------- Seitenleiste ----------
