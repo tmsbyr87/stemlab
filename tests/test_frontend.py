@@ -603,3 +603,51 @@ def test_coverfeld_sagt_was_zu_tun_ist(html):
     """„kein Cover“ beschreibt einen Zustand, nicht eine Möglichkeit."""
     assert not re.search(r"'kein Cover'", html), \
         "Der Text soll zum Handeln auffordern, nicht nur den Mangel benennen"
+
+
+# --------------------------------------------------------------------------- #
+# Eine Karte, ein Track
+# --------------------------------------------------------------------------- #
+
+def test_nur_eine_karte_bleibt_offen(html):
+    """Mit einem Song arbeitet man zur Zeit, nicht mit dreien. Zwei Karten
+    nebeneinander heißt zweimal Player, zweimal Mixer, zweimal Aufmerksamkeit.
+
+    Die erste Fassung schloss nur Karten, die über die Liste geöffnet
+    wurden (dataset.gewaehlt). Karten aus Analyse-Läufen und Aktionen
+    blieben stehen – am Ende lagen zwei Karten desselben Tracks übereinander.
+    """
+    fn = re.search(r"function schliesseAndereKarten\(.*?\n\}", html, re.S)
+    assert fn, "Die Funktion fehlt"
+    assert "dataset.gewaehlt !== '1'" not in fn.group(0), \
+        "Es dürfen nicht nur die über die Liste geöffneten Karten geschlossen werden"
+
+
+def test_laufende_karte_wird_nicht_geschlossen(html):
+    """Wer eine Analyse gestartet hat und nebenbei einen anderen Track
+    ansieht, soll die Fortschrittsanzeige nicht verlieren. Eine rechnende
+    Karte ist keine Ablenkung, sondern die Auskunft darüber, was passiert."""
+    fn = re.search(r"function schliesseAndereKarten\(.*?\n\}", html, re.S)
+    assert fn, "Die Funktion fehlt"
+    assert re.search(r"dataset\.status === 'running'", fn.group(0)), \
+        "Laufende Karten müssen verschont bleiben"
+    assert re.search(r"dataset\.status === 'queued'", fn.group(0)), \
+        "Wartende ebenso – sie fangen gleich an"
+
+    # Der Status muss dafür auch an der Karte stehen.
+    assert re.search(r"e\.dataset\.status = d\.status", html), \
+        "renderJob muss den Status an der Karte führen"
+
+
+def test_dieselbe_karte_entsteht_nicht_zweimal(html):
+    """Ein Track, der schon offen ist, bekommt keine zweite Karte –
+    unabhängig davon, ob er über die Liste oder über eine Aktion kam."""
+    assert re.search(r"function karteFuerOrdner\(", html), \
+        "Es braucht eine Suche nach der vorhandenen Karte eines Ordners"
+
+
+def test_aktionen_oeffnen_keine_zusaetzliche_karte(html):
+    """Loops, Mix und Lyrics gehören zum Track, über den sie laufen –
+    sie brauchen keine eigene Karte daneben."""
+    assert re.search(r"schliesseAndereKarten\(e\)", html), \
+        "Eine neu aufgebaute Karte muss die übrigen schließen"

@@ -931,10 +931,17 @@ function markiereInDerListe(folder) {
 
 /* Zwei offene Karten mit Player nebeneinander stiften Verwirrung und spielen
    womöglich gleichzeitig. Es bleibt bei einer. */
+/* Es bleibt bei einer offenen Karte. Mit einem Song arbeitet man zur Zeit;
+   zwei Karten nebeneinander heißen zweimal Player, zweimal Mixer, zweimal
+   Aufmerksamkeit – und bei zwei verschiedenen Liedern weiß man nicht mehr,
+   welchen man gerade hört.
+
+   Laufende Arbeit bleibt stehen: Eine Karte, deren Job noch rechnet, ist
+   kein Ablenker, sondern eine Fortschrittsanzeige. */
 function schliesseAndereKarten(behalten) {
   for (const [id, card] of state.jobs) {
     if (card === behalten) continue;
-    if (card.dataset.gewaehlt !== '1') continue;
+    if (card.dataset.status === 'running' || card.dataset.status === 'queued') continue;
     const mixer = state.mixers.get(id);
     if (mixer) { try { mixer.pause(); } catch (_) {} }
     delete card.dataset.gewaehlt;
@@ -943,6 +950,16 @@ function schliesseAndereKarten(behalten) {
     state.mixers.delete(id);
   }
   updateQueue();
+}
+
+/* Ein Ordner, eine Karte: Wer denselben Track zweimal öffnet – einmal über
+   die Liste, einmal über eine Aktion –, soll nicht zwei davon vorfinden. */
+function karteFuerOrdner(folder, ausser) {
+  if (!folder) return null;
+  for (const card of state.jobs.values()) {
+    if (card !== ausser && card.dataset.folder === folder) return card;
+  }
+  return null;
 }
 
 function flash(card) {
@@ -1387,9 +1404,13 @@ function renderJob(d) {
 
   // Eine reine Analyse hat keine Stems, aber eine Aufnahme – auch die bekommt
   // ihre Karte mit Player, Akkorden und dem Knopf zum Trennen.
+  e.dataset.status = d.status || '';
   const hatInhalt = d.files.length || (d.extras || []).some(x => base(x) === 'original.wav');
   if (d.status === 'done' && hatInhalt && !e.dataset.filled) {
     e.dataset.filled = '1';
+    // Eine fertige Karte bekommt die Bühne – die übrigen weichen, sofern
+    // dort nichts mehr rechnet.
+    schliesseAndereKarten(e);
     // 'analyze' gehört hierher: Eine reine Analyse hat zwar keine Stems, aber
     // eine Aufnahme – und damit Player, Wellenform, Akkorde und den Knopf zum
     // Nachziehen. Vorher landete sie in buildActionResult und blieb stumm.
