@@ -309,3 +309,184 @@ def test_energie_gewichtet_die_anschlagsdichte_am_staerksten():
 
 def test_energie_bei_stille_ist_am_boden():
     assert analysis._energy(np.zeros(analysis.SAMPLE_RATE * 5, dtype="float32")) <= 1
+
+
+# --------------------------------------------------------------------------- #
+# Struktur: Abschnitte eines Tracks
+# --------------------------------------------------------------------------- #
+#
+# Wo beginnt der Drop, wie lang ist das Intro? Das sind die Fragen, mit
+# denen ein Produzent an einen fremden Track herangeht. Gemessen wird über
+# das Taktraster: Merkmale je Takt mitteln, dann dort teilen, wo sie sich
+# deutlich ändern.
+
+def _abschnittstrack(sr=None):
+    """Vier Abschnitte mit deutlich verschiedenem Charakter.
+
+    Leise -> laut mit Bass -> leise ohne Bass -> laut. So sieht ein Track
+    grob aus, und die Grenzen sind per Konstruktion bekannt.
+    """
+    sr = sr or analysis.SAMPLE_RATE
+    takt = 2.0            # 120 BPM, 4/4
+    teile = []
+    for pegel, mit_bass in ((0.10, False), (0.55, True), (0.12, False), (0.60, True)):
+        n = int(sr * takt * 8)          # 8 Takte je Abschnitt
+        t = np.arange(n) / sr
+        ton = 0.5 * np.sin(2 * np.pi * 440 * t)
+        if mit_bass:
+            ton = ton + np.sin(2 * np.pi * 55 * t)
+        teile.append((pegel * ton).astype("float32"))
+    return np.concatenate(teile)
+
+
+def test_struktur_findet_die_abschnitte():
+    """Vier gebaute Abschnitte sollen als vier erkannt werden."""
+    y = _abschnittstrack()
+    downbeats = [i * 2.0 for i in range(33)]
+
+    abschnitte = analysis.segmente(y, downbeats, anzahl=4)
+
+    assert len(abschnitte) == 4
+
+
+def test_struktur_grenzen_liegen_auf_takten():
+    """Ein Abschnitt, der mitten im Takt beginnt, ist für die Produktion
+    unbrauchbar – man arbeitet in Achter- und Sechzehnergruppen."""
+    y = _abschnittstrack()
+    downbeats = [i * 2.0 for i in range(33)]
+
+    for a in analysis.segmente(y, downbeats, anzahl=4):
+        assert any(abs(a["start"] - d) < 0.01 for d in downbeats), \
+            f"Grenze bei {a['start']} liegt nicht auf einem Downbeat"
+
+
+def test_struktur_kennt_die_laenge_in_takten():
+    y = _abschnittstrack()
+    downbeats = [i * 2.0 for i in range(33)]
+
+    abschnitte = analysis.segmente(y, downbeats, anzahl=4)
+
+    assert sum(a["takte"] for a in abschnitte) == 32
+    assert all(a["takte"] > 0 for a in abschnitte)
+
+
+def test_struktur_ohne_taktraster():
+    """Ohne Downbeats gibt es keine Grundlage – dann lieber nichts."""
+    assert analysis.segmente(_abschnittstrack(), [], anzahl=4) == []
+
+
+@pytest.mark.parametrize("takte", [0, 1, 4, 7])
+def test_struktur_braucht_genug_takte(takte):
+    """Unter acht Takten ist jede Einteilung willkürlich."""
+    y = _abschnittstrack()
+    assert analysis.segmente(y, [i * 2.0 for i in range(takte)], anzahl=3) == []
+
+
+def test_struktur_ohne_audio():
+    assert analysis.segmente(np.array([], dtype="float32"),
+                             [i * 2.0 for i in range(20)]) == []
+
+
+def test_struktur_bei_zu_wenigen_takten():
+    """Ein Track mit vier Takten hat keine Abschnitte."""
+    y = _abschnittstrack()[: analysis.SAMPLE_RATE * 8]
+    assert analysis.segmente(y, [0.0, 2.0, 4.0, 6.0], anzahl=4) == []
+
+
+def test_struktur_benennt_laute_und_leise_abschnitte():
+    """Der Kern für Produzenten: Wo ist der Drop, wo der Breakdown?"""
+    y = _abschnittstrack()
+    downbeats = [i * 2.0 for i in range(33)]
+
+    abschnitte = analysis.segmente(y, downbeats, anzahl=4)
+    namen = [a["art"] for a in abschnitte]
+
+    # Der zweite und vierte Abschnitt sind laut und bassreich, der erste
+    # und dritte leise – das muss sich in der Benennung zeigen.
+    assert namen[1] != namen[0], "Laut und leise dürfen nicht gleich heißen"
+    assert namen[3] != namen[2]
+
+
+def test_struktur_nennt_pegel_und_bassanteil():
+    """Die Kennzahlen gehören dazu – sie begründen die Benennung."""
+    y = _abschnittstrack()
+    abschnitte = analysis.segmente(y, [i * 2.0 for i in range(33)], anzahl=4)
+
+    for a in abschnitte:
+        assert 0.0 <= a["pegel"] <= 1.0
+        assert 0.0 <= a["bass"] <= 1.0
+
+
+def test_struktur_anzahl_richtet_sich_nach_der_laenge():
+    """Ein Sechsminüter hat mehr Abschnitte als ein Zweiminüter – die Zahl
+    fest vorzugeben würde beiden nicht gerecht."""
+    import inspect
+
+    y = _abschnittstrack()
+    downbeats = [i * 2.0 for i in range(33)]
+
+    automatisch = analysis.segmente(y, downbeats)
+    assert 3 <= len(automatisch) <= 8
+
+    # Die Regel selbst: etwa ein Abschnitt je 16 Takte, begrenzt auf 3 bis 8.
+    # Eine feste Zahl würde einem Zweiminüter so wenig gerecht wie einem
+    # Zehnminüter.
+    quelle = inspect.getsource(analysis.segmente)
+    assert "len(db) / 16" in quelle, "Die Zahl muss sich nach der Länge richten"
+    assert "max(3, min(8," in quelle, "Mit Unter- und Obergrenze"
+
+
+def test_drop_braucht_pegel_und_bass():
+    """Ein Drop ist der lauteste Teil mit vollem Bass – beides zusammen.
+    Ohne die Bedingung hieße jeder laute Abschnitt so."""
+    import inspect
+
+    quelle = inspect.getsource(analysis._abschnittsart)
+    assert "laut * 0.92" in quelle, "Der Drop misst sich am lautesten Abschnitt"
+    assert "viel_bass" in quelle, "Und braucht vollen Bass"
+
+    # Laut, aber bassarm ist kein Drop.
+    assert analysis._abschnittsart(0.40, 0.10, 0.40, 0.60) != "Drop"
+    # Laut und bassreich schon.
+    assert analysis._abschnittsart(0.40, 0.58, 0.40, 0.60) == "Drop"
+
+
+def test_erster_abschnitt_heisst_nicht_drop():
+    """Ein Track beginnt nicht mit dem Drop.
+
+    Das Intro kann durchaus laut und bassreich sein – bei Clubtracks ist
+    es oft schon der volle Beat. Trotzdem ist es der Einstieg, und wer
+    das Arrangement nachbauen will, braucht die Unterscheidung.
+    """
+    y = _abschnittstrack()
+    downbeats = [i * 2.0 for i in range(33)]
+
+    abschnitte = analysis.segmente(y, downbeats, anzahl=4)
+
+    assert abschnitte[0]["art"] != "Drop"
+    assert abschnitte[0]["art"] == "Intro", \
+        "Der erste Abschnitt ist das Intro, auch wenn er laut ist"
+
+    # Die Regel selbst, weil synthetisches Material die Drop-Bedingung
+    # nicht erreicht: An echten Tracks ist der Anfang oft schon der volle
+    # Beat und würde sonst "Drop" heißen.
+    import inspect
+    quelle = inspect.getsource(analysis.segmente)
+    assert 'abschnitte[0]["art"] == "Drop"' in quelle, \
+        "Ein lautes Intro darf nicht als Drop durchgehen"
+    assert 'abschnitte[0]["art"] = "Intro"' in quelle
+
+
+def test_letzter_abschnitt_kann_outro_sein():
+    """Läuft der Track am Ende aus, ist das ein Outro und kein Breakdown –
+    danach kommt nichts mehr."""
+    y = _abschnittstrack()
+    # Leiser Schluss anhängen.
+    sr = analysis.SAMPLE_RATE
+    leise = (0.05 * np.sin(2 * np.pi * 440 * np.arange(sr * 16) / sr)).astype("float32")
+    y = np.concatenate([y, leise])
+    downbeats = [i * 2.0 for i in range(41)]
+
+    abschnitte = analysis.segmente(y, downbeats, anzahl=5)
+
+    assert abschnitte[-1]["art"] in ("Outro", "Breakdown")

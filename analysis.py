@@ -63,6 +63,7 @@ class Analysis:
     key_mode: str = ""              # "minor"
     energy: int = 0                 # 1–10, wie in Mixed In Key
     danceability: int = 0           # 1–10, abgeleitet aus Tempo, Energie, Raster
+    segments: list[dict] = field(default_factory=list)   # Abschnitte des Arrangements
     key_confidence: float = 0.0
     key_alt: str = ""
     beats: list[float] = field(default_factory=list)
@@ -408,6 +409,122 @@ def danceability(bpm: float, energy: int, bpm_confidence: float) -> int:
     return int(max(1, min(10, round(wert * 10))))
 
 
+def _abschnittsart(pegel: float, bass: float, laut: float, bassreich: float) -> str:
+    """Einen Abschnitt benennen, so wie ein Produzent ihn nennen würde.
+
+    Die Schwellen sind relativ zum Track, nicht absolut. Ein leise
+    gemasterter Track hat trotzdem einen Drop – nur eben bei einem
+    niedrigeren Pegel. An 63 Abschnitten aus 8 Clubtracks gemessen liegt
+    der Pegel zwischen 0,04 und 0,40; eine feste Schwelle von 0,65 wäre
+    nie erreicht worden.
+
+    Die Benennung ist eine Deutung, keine Messung – deshalb liefert
+    segmente() die Kennzahlen mit, auf denen sie beruht.
+    """
+    leise = pegel < laut * 0.6
+    viel_bass = bass > bassreich * 0.85
+    wenig_bass = bass < bassreich * 0.6
+
+    if leise:
+        return "Breakdown" if wenig_bass else "Aufbau"
+    if wenig_bass:
+        return "Break"
+    if pegel > laut * 0.92 and viel_bass:
+        return "Drop"
+    return "Groove"
+
+
+def segmente(y: np.ndarray, downbeats: list[float], anzahl: int | None = None) -> list[dict]:
+    """Den Track in Abschnitte teilen – auf Taktgrenzen.
+
+    Gemessen wird je Takt: Klangfarbe (MFCC) und Pegel. Wo sich beides
+    deutlich ändert, liegt eine Grenze. Die Grenzen fallen auf Downbeats,
+    weil alles andere für die Produktion unbrauchbar wäre – man arbeitet
+    in Acht- und Sechzehnergruppen, nicht in Sekunden.
+
+    `anzahl` steuert die Feinheit. Ohne Angabe richtet sie sich nach der
+    Länge: Ein Sechsminüter hat mehr Abschnitte als ein Zweiminüter.
+    """
+    import librosa
+
+    db = [float(d) for d in (downbeats or [])]
+    if len(db) < 8 or not y.size:
+        return []
+
+    if anzahl is None:
+        # Etwa ein Abschnitt je 16 Takte, aber zwischen 3 und 8.
+        anzahl = int(max(3, min(8, round(len(db) / 16))))
+    anzahl = max(2, min(anzahl, len(db) - 1))
+
+    mfcc = librosa.feature.mfcc(y=y, sr=SAMPLE_RATE, n_mfcc=13)
+    rms = librosa.feature.rms(y=y)[0]
+    zeiten = librosa.frames_to_time(np.arange(mfcc.shape[1]), sr=SAMPLE_RATE)
+
+    spalten, takt_index = [], []
+    for i in range(len(db) - 1):
+        maske = (zeiten >= db[i]) & (zeiten < db[i + 1])
+        if not maske.any():
+            continue
+        # Der Pegel bekommt Gewicht, sonst entscheidet die Klangfarbe allein –
+        # und ein Breakdown unterscheidet sich vor allem durch die Lautstärke.
+        spalten.append(np.concatenate([mfcc[:, maske].mean(axis=1), [rms[maske].mean() * 20]]))
+        takt_index.append(i)
+    if len(spalten) < anzahl + 1:
+        return []
+
+    X = np.array(spalten).T
+    grenzen = sorted(set(int(g) for g in librosa.segment.agglomerative(X, anzahl)))
+    if grenzen and grenzen[0] != 0:
+        grenzen.insert(0, 0)
+    grenzen.append(len(spalten))
+
+    gesamt_max = float(np.abs(y).max()) or 1.0
+    abschnitte = []
+    for a, b in zip(grenzen, grenzen[1:]):
+        if b <= a:
+            continue
+        start, ende = db[takt_index[a]], db[takt_index[min(b, len(takt_index) - 1)]]
+        stueck = y[int(start * SAMPLE_RATE):int(ende * SAMPLE_RATE)]
+        if stueck.size < SAMPLE_RATE // 2:
+            continue
+        pegel = float(np.sqrt(np.mean(stueck.astype("float64") ** 2))) / gesamt_max
+        spec = np.abs(librosa.stft(stueck[: SAMPLE_RATE * 30], n_fft=2048))
+        freqs = librosa.fft_frequencies(sr=SAMPLE_RATE, n_fft=2048)
+        summe = float(spec.sum()) or 1.0
+        bass = float(spec[freqs < 250].sum()) / summe
+        onset = librosa.onset.onset_strength(y=stueck[: SAMPLE_RATE * 30], sr=SAMPLE_RATE)
+        perkussiv = float(np.mean(onset)) if onset.size else 0.0
+        abschnitte.append({
+            "start": round(start, 2),
+            "ende": round(ende, 2),
+            "takte": b - a,
+            "takt_von": takt_index[a] + 1,
+            "pegel": round(min(1.0, pegel), 3),
+            "bass": round(bass, 3),
+            "perkussiv": round(perkussiv, 2),
+        })
+
+    # Benannt wird erst, wenn alle Abschnitte gemessen sind: Die Schwellen
+    # beziehen sich auf den lautesten und bassreichsten Teil dieses Tracks.
+    if abschnitte:
+        laut = max(a["pegel"] for a in abschnitte) or 1.0
+        bassreich = max(a["bass"] for a in abschnitte) or 1.0
+        for a in abschnitte:
+            a["art"] = _abschnittsart(a["pegel"], a["bass"], laut, bassreich)
+
+        # Erster und letzter Abschnitt haben ihre Stellung im Track, die
+        # sich aus Pegel und Bass nicht ablesen lässt: Ein Track beginnt
+        # nicht mit dem Drop, und was am Ende leise ausläuft, ist ein Outro
+        # und kein Breakdown – danach kommt ja nichts mehr.
+        if abschnitte[0]["art"] == "Drop":
+            abschnitte[0]["art"] = "Intro"
+        elif abschnitte[0]["art"] in ("Breakdown", "Aufbau"):
+            abschnitte[0]["art"] = "Intro"
+        if len(abschnitte) > 1 and abschnitte[-1]["art"] in ("Breakdown", "Break"):
+            abschnitte[-1]["art"] = "Outro"
+    return abschnitte
+
+
 # --------------------------------------------------------------------------- #
 # Akkorde pro Takt
 # --------------------------------------------------------------------------- #
@@ -557,6 +674,10 @@ def analyze(path: Path, on_log: Callable[[str], None] | None = None) -> Analysis
         setattr(result, k, v)
     result.energy = _energy(y)
     result.danceability = danceability(result.bpm, result.energy, result.bpm_confidence)
+    try:
+        result.segments = segmente(y, result.downbeats)
+    except Exception as exc:          # Struktur ist eine Zugabe, kein Muss
+        LOG.warning("Struktur nicht bestimmbar: %s", exc)
     result.chords = _chords(chroma, hop, downbeats, beats, seconds)
     result.chord_sheet = _chord_sheet(result.chords, per_line=4)
     return result
