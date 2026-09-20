@@ -279,10 +279,17 @@ wiegst:
   ein Track einmal ein einziges Segment mit 110-mal „Uh-oh", beim zweiten Lauf
   desselben Tracks sauberen Text. `drop_hallucinations` greift nur bei Stille,
   nicht bei Wiederholung innerhalb eines Segments.
-- **Eine niedrige Tempo-Konfidenz wird nicht sichtbar gemacht.** Bei einem
-  Track der Stichprobe stand `bpm_confidence` auf 0,01, während die Oberfläche
-  122,09 BPM ohne Warnung anzeigte (der Median der Beat-Abstände sagte 120,00).
-  Wer den Wert ungeprüft ins Set übernimmt, merkt es erst beim Mischen.
+- **Eine gescheiterte Takterkennung bleibt unsichtbar.** Bei einem Track der
+  Stichprobe stand `bpm_confidence` auf 0,01, während die Oberfläche 122,09 BPM
+  ohne Vorbehalt anzeigte – der Median der Beat-Abstände sagte 120,00. Die
+  Oberfläche zeigt bewusst nur einen Wert: Zwei Tempi nebeneinander helfen
+  niemandem, der vor der Karte steht. Der richtige Weg wäre, in solchen Fällen
+  ein belastbares Tempo zu ermitteln (etwa als Median-Rückfall in
+  `_tempo_from_beats`), nicht die Unsicherheit weiterzureichen. Dafür fehlt
+  bislang Material: An einem synthetisch gestörten Raster trifft die
+  Regression den richtigen Wert, der Fehlerfall ließ sich also nicht
+  nachstellen. Wer daran arbeitet, braucht die echten Beats eines solchen
+  Tracks.
 - **Die Analyse läuft vor der Trennung** auf dem Mix, nicht auf den Stems. Für
   die Tonart wäre der `other`-Stem sauberer; die Bandbegrenzung auf
   100–1000 Hz war die günstigere Lösung und reicht bislang.
