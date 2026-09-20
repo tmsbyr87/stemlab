@@ -957,6 +957,34 @@ async function openAnalysis(a) {
    steht jetzt in der Liste, und dort ist er auffindbar, sortierbar und
    filterbar. Ein kurzer Moment bleibt sie sichtbar, damit man sieht, dass
    etwas passiert ist – dann räumt sie sich weg. */
+/* Eine Aktion ist mit ihrem Ergebnis fertig: Loops liegen im Ordner, der
+   Mix ist geschrieben, der Text steht in der rechten Spalte. Ihre Karte
+   dann stehen zu lassen, überlässt dem Nutzer das Aufräumen einer Anzeige,
+   die nichts mehr anzeigt.
+
+   Die Karte des Songs selbst bleibt – mit der arbeitet man weiter. */
+const AKTIONS_ARTEN = new Set(['refine', 'loops', 'shift', 'mix', 'lyrics']);
+
+function raeumeAktionsKarte(e, d) {
+  if (!AKTIONS_ARTEN.has(d.kind) || e.dataset.geraeumt) return;
+  e.dataset.geraeumt = '1';
+  const was = (d.files || []).length;
+  setTimeout(() => {
+    if (e.dataset.gewaehlt) return;
+    state.jobs.delete(d.id);
+    state.jobDaten.delete(d.id);
+    e.remove();
+    updateQueue();
+    renderSeitenleiste();
+    // Der Hinweis bleibt: Die Dateien liegen im Ordner, auch wenn die
+    // Karte verschwindet.
+    if (was) toast(`${ACTION_TITEL[d.kind] || 'Aktion'} fertig · ${was} ${was === 1 ? 'Datei' : 'Dateien'} im Ordner.`);
+  }, 4000);
+}
+
+const ACTION_TITEL = { refine: 'Vocal-Veredelung', loops: 'Loop-Export',
+                       shift: 'Pitch/Tempo', mix: 'Mix-Export', lyrics: 'Lyrics' };
+
 function raeumeAnalyseKarte(e, d) {
   if (e.dataset.geraeumt) return;
   e.dataset.geraeumt = '1';
@@ -1462,8 +1490,10 @@ function renderJob(d) {
   if (d.status === 'done' && hatInhalt && !e.dataset.filled) {
     e.dataset.filled = '1';
     // Eine fertige Karte bekommt die Bühne – die übrigen weichen, sofern
-    // dort nichts mehr rechnet.
-    schliesseAndereKarten(e);
+    // dort nichts mehr rechnet. Aktionen sind davon ausgenommen: Loops,
+    // Mix oder Lyrics gehören zum offenen Song und ersetzen ihn nicht.
+    // Sie räumen sich ohnehin gleich selbst weg.
+    if (!AKTIONS_ARTEN.has(d.kind)) schliesseAndereKarten(e);
     // 'analyze' gehört hierher: Eine reine Analyse hat zwar keine Stems, aber
     // eine Aufnahme – und damit Player, Wellenform, Akkorde und den Knopf zum
     // Nachziehen. Vorher landete sie in buildActionResult und blieb stumm.
@@ -1475,6 +1505,7 @@ function renderJob(d) {
     // Fertige Analysen stapeln sich sonst als Karten. Sie stehen ab jetzt in
     // der Liste unten; von dort öffnet ein Klick genau eine Karte.
     if (d.kind === 'analyze') raeumeAnalyseKarte(e, d);
+    raeumeAktionsKarte(e, d);
     // Die Karte steht jetzt – die rechte Spalte kann sich danach richten.
     requestAnimationFrame(richteInfospalteAus);
   }
@@ -2218,8 +2249,19 @@ const BEREICHE = [
   // widersinnig.
   { ziel: 'bereich-neu',      label: 'Neuer Track', verlaesst: true },
   { ziel: 'bereich-analysen', label: 'Analysen', zahl: () => state.analyses.length, verlaesst: true },
-  { ziel: 'jobs-card',        label: 'In Arbeit', zahl: () => state.jobs.size, nurWennGefuellt: true },
+  { ziel: 'jobs-card',        label: 'In Arbeit', zahl: () => laufendeJobs(), nurWennGefuellt: true },
 ];
+
+/* Was tatsächlich rechnet oder wartet – nicht, was an Karten offen ist.
+   Wer auf "In Arbeit 1" klickt und eine längst fertige Karte vorfindet,
+   traut der Anzeige beim nächsten Mal nicht mehr. */
+function laufendeJobs() {
+  let n = 0;
+  for (const karte of state.jobs.values()) {
+    if (karte.dataset.status === 'running' || karte.dataset.status === 'queued') n++;
+  }
+  return n;
+}
 
 async function ladePlaylists() {
   try {

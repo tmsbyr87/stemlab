@@ -1024,3 +1024,61 @@ def test_neuer_track_verlaesst_den_offenen_song(html):
 
     # Und der Klick muss es auslösen.
     assert re.search(r"if \(b\.verlaesst\) verlasseAktuellenSong\(\);", html)
+
+
+# --------------------------------------------------------------------------- #
+# "In Arbeit" zeigt, was in Arbeit ist
+# --------------------------------------------------------------------------- #
+
+def test_in_arbeit_zaehlt_nur_laufendes(html):
+    """Gezählt wurden alle offenen Karten, auch längst fertige. Wer auf
+    „In Arbeit 1" klickt und eine fertige Karte vorfindet, traut der
+    Anzeige beim nächsten Mal nicht mehr."""
+    liste = re.search(r"const BEREICHE = \[(.*?)\];", html, re.S)
+    eintrag = re.search(r"\{ ziel: 'jobs-card'[^}]*\}", liste.group(1))
+    assert eintrag, "Der Eintrag fehlt"
+    assert "state.jobs.size" not in eintrag.group(0), \
+        "Die Zahl darf nicht alle offenen Karten zählen"
+    assert "laufendeJobs()" in eintrag.group(0), \
+        "Gezählt gehört, was tatsächlich rechnet oder wartet"
+
+
+def test_fertige_aktion_raeumt_sich_selbst_weg(html):
+    """Eine Aktion – Loops, Mix, Lyrics – ist mit ihrem Ergebnis fertig.
+    Ihre Karte dann stehen zu lassen, überlässt dem Nutzer das Aufräumen
+    einer Anzeige, die nichts mehr anzeigt.
+
+    Die Karte des Songs selbst bleibt: Mit der arbeitet man weiter.
+    """
+    fn = re.search(r"function raeumeAktionsKarte\(.*?\n\}", html, re.S)
+    assert fn, "Es fehlt das Aufräumen fertiger Aktionen"
+    # Und es muss auch gerufen werden.
+    assert re.search(r"^\s*raeumeAktionsKarte\(e, d\);", html, re.M), \
+        "Das Aufräumen muss nach jeder fertigen Karte laufen"
+    # Betroffen sind nur die Aktionen. Die Karte des Songs selbst bleibt.
+    menge = re.search(r"const AKTIONS_ARTEN = new Set\(\[(.*?)\]\)", html, re.S)
+    assert menge, "Die Liste der Aktionsarten fehlt"
+    for art in ("'loops'", "'mix'", "'lyrics'", "'refine'", "'shift'"):
+        assert art in menge.group(1), f"{art} fehlt"
+    for nicht in ("'separate'", "'library'", "'analyze'"):
+        assert nicht not in menge.group(1), \
+            f"{nicht} ist keine Aktion – diese Karte muss bleiben"
+
+
+def test_ergebnis_einer_aktion_geht_nicht_verloren(html):
+    """Die erzeugten Dateien liegen im Ordner, und die Meldung nennt sie.
+    Verschwindet die Karte, muss der Hinweis darauf bleiben."""
+    fn = re.search(r"function raeumeAktionsKarte\(.*?\n\}", html, re.S)
+    assert fn, "Die Funktion fehlt"
+    assert re.search(r"if \(was\) toast\(", fn.group(0)), \
+        "Beim Wegräumen muss eine Meldung bleiben, was entstanden ist"
+    assert "im Ordner" in fn.group(0), \
+        "Die Meldung muss sagen, wo die Dateien liegen"
+
+
+def test_aktion_verdraengt_den_offenen_song_nicht(html):
+    """Loops, Mix oder Lyrics gehören zum Song, an dem man arbeitet – sie
+    ersetzen ihn nicht. Vorher schloss ihre Karte die des Songs, und nach
+    dem Selbstaufräumen stand man vor gar nichts mehr."""
+    assert re.search(r"if \(!AKTIONS_ARTEN\.has\(d\.kind\)\) schliesseAndereKarten\(e\)", html), \
+        "Eine Aktion darf die Song-Karte nicht verdrängen"
