@@ -257,7 +257,10 @@ wiegst:
   Techno bis Organic House) hat die Kette von der Trennung bis zum
   DJ-Export bestätigt: Stems ohne Clipping, plausible Tempi, musikalisch
   sinnvolle Cue-Points. Das ist ein einmaliger Beleg, kein Testfall –
-  echte Musik gehört nicht ins Repo.
+  echte Musik gehört nicht ins Repo. Für Tempo und Tonart gab es am
+  2026-10-03 einen Benchmark über 495 Tracks (Jahrgänge 2025 und 2026)
+  gegen die Tags von Mixed In Key und Beatport. Skripte und Messwerte
+  liegen nur lokal beim Maintainer, nicht im Repo.
 - **Die Schwellen der Lyrics-Filterung sind an einem einzigen Track
   kalibriert** (`SILENCE_DB = -40`, `FILLER_DB = -20` in `postprocess.py`).
   Die Tests prüfen, dass die Logik greift, nicht dass die Werte für jedes
@@ -289,10 +292,19 @@ wiegst:
   bislang Material: An einem synthetisch gestörten Raster trifft die
   Regression den richtigen Wert, der Fehlerfall ließ sich also nicht
   nachstellen. Wer daran arbeitet, braucht die echten Beats eines solchen
-  Tracks.
+  Tracks. Der Benchmark vom 2026-10-03 hat einen geliefert: „Yas Cepeda,
+  Yasha, Aaron Sevilla – Mamakosa“ ergibt 124,12 BPM bei Konfidenz 0,0,
+  richtig sind 123. Er ist der einzige echte Tempofehler unter 242 Tracks.
 - **Die Analyse läuft vor der Trennung** auf dem Mix, nicht auf den Stems. Für
   die Tonart wäre der `other`-Stem sauberer; die Bandbegrenzung auf
-  100–1000 Hz war die günstigere Lösung und reicht bislang.
+  150–1500 Hz war die günstigere Lösung und reicht bislang.
+- **Dur oder Moll ist nicht belastbar gemessen.** Der Benchmark misst den
+  Grundton sauber (99 %), für das Tongeschlecht fehlt eine Referenz: Mixed
+  In Key nennt immer Moll, Beatport meistens Dur. Wer an `_key()` oder
+  `KEY_BAND_HZ` dreht, misst gegen Grundton **und** Beatport, nie allein
+  gegen die Tracks, bei denen beide Quellen übereinstimmen – die sind alle
+  in Moll. Und er bestätigt jede Einstellung an einem zweiten Jahrgang:
+  200–2000 Hz war auf 2026 vorn und fiel an 2025 zurück.
 
 ### Grenzen
 

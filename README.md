@@ -146,7 +146,7 @@ erneut hochzuladen. Die Analyse wird dabei nicht neu gerechnet.
      Gegenprobe über die Downbeats deckelt die Sicherheit, wenn beide
      Schätzungen auseinanderlaufen. Die Halb-/Doppeltempo-Alternative steht
      daneben, weil sie musikalisch nicht entscheidbar ist.
-   - **Tonart** über ein auf **100–1000 Hz bandbegrenztes** CQT-Chromagramm und
+   - **Tonart** über ein auf **150–1500 Hz bandbegrenztes** CQT-Chromagramm und
      Albrecht-Shanahan-Profile, dazu **Camelot-Code** (6A, 12B …), im
      Rad-Farbton eingefärbt. Die Begrenzung hält Bassdrum und Sub-Bass heraus:
      im vollen Band schmiert der Kick über alle zwölf Chroma-Bins und drückt

@@ -5,7 +5,7 @@ StemLab – musikalische Analyse.
     daraus ein präzises Tempo per Regression über ein bereinigtes Beat-Raster.
     Fällt das Modell aus (kein Netz beim ersten Start, kein torch), springt das
     Tempogramm von librosa ein.
-  * Tonart über ein auf 100–1000 Hz begrenztes CQT-Chromagramm und
+  * Tonart über ein auf 150–1500 Hz begrenztes CQT-Chromagramm und
     Albrecht-Shanahan-Profile, dazu Camelot.
   * Akkorde pro Takt per Template-Matching auf dem taktsynchronen Chromagramm.
   * MIDI-Klickspur und beats.json als Nebenprodukt.
@@ -27,6 +27,7 @@ LOG = logging.getLogger("stemlab.analysis")
 
 SAMPLE_RATE = 22050
 MAX_SECONDS = 600
+KEY_BAND_HZ = (150.0, 1500.0)   # Bandpass vor dem Tonart-Chromagramm, siehe key_chroma()
 
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 NOTE_NAMES_DE = ["C", "Cis", "D", "Dis", "E", "F", "Fis", "G", "Gis", "A", "B", "H"]
@@ -256,7 +257,7 @@ def _fold_bpm(bpm: float) -> float:
 
 
 def key_chroma(y: np.ndarray, hop: int = 2048) -> np.ndarray:
-    """Chromagramm für die Tonartbestimmung, auf 100–1000 Hz begrenzt.
+    """Chromagramm für die Tonartbestimmung, auf KEY_BAND_HZ begrenzt.
 
     Im vollen Band dominieren Bassdrum und Sub-Bass eines Dance-Tracks das
     Chromagramm: der breitbandige Kick-Impuls schmiert über alle zwölf Bins und
@@ -264,16 +265,21 @@ def key_chroma(y: np.ndarray, hop: int = 2048) -> np.ndarray:
     entscheidet dann praktisch zufällig zwischen benachbarten Quinten
     (gemessen: C-Dur statt g-Moll – sechs von sieben Tönen teilen sich beide).
 
-    Das Band von 100 Hz bis 1 kHz lässt Kick und Sub draußen und behält den
-    harmonisch tragenden Bereich. Damit wird die Tonart auf dem reinen Mix
-    genauso sicher erkannt wie auf den getrennten Stems.
+    Die Bandgrenzen stammen aus einem Benchmark über 495 veröffentlichte
+    Tracks der Jahrgänge 2025 und 2026, gemessen gegen Mixed In Key und
+    Beatport. 150 Hz bis 1,5 kHz war das robusteste von acht Bändern: Grundton
+    96,6 → 98,9 %, Übereinstimmung mit Beatport 68,8 → 72,9 % gegenüber dem
+    vorherigen Band 100 Hz bis 1 kHz, in beiden Jahrgängen einzeln stabil.
+    Das auf 2026 allein beste Band 200 Hz bis 2 kHz fiel in der Gegenprobe
+    an 2025 zurück.
     """
     import librosa
     import scipy.signal as signal
 
     nyquist = SAMPLE_RATE / 2
+    low, high = KEY_BAND_HZ
     try:
-        sos = signal.butter(4, [100.0 / nyquist, 1000.0 / nyquist], btype="band", output="sos")
+        sos = signal.butter(4, [low / nyquist, high / nyquist], btype="band", output="sos")
         filtered = signal.sosfiltfilt(sos, y)
     except Exception:
         filtered = y

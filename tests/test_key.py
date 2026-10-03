@@ -114,3 +114,45 @@ def test_id3_schreibweise():
     """Rekordbox und Traktor erwarten 'Gm' bzw. 'C', nicht 'G minor'."""
     assert analysis.id3_key("G", "minor") == "Gm"
     assert analysis.id3_key("C", "major") == "C"
+
+
+# --------------------------------------------------------------------------- #
+# Bandgrenzen des Tonart-Chromagramms
+#
+# Die Grenzen 150–1500 Hz stammen aus einem Benchmark über 495 veröffentlichte
+# Tracks der Jahrgänge 2025 und 2026, gemessen gegen Mixed In Key und Beatport:
+# Grundton 96,6 → 98,9 %, Übereinstimmung mit Beatport 68,8 → 72,9 %
+# gegenüber 100–1000 Hz, in beiden Jahrgängen einzeln stabil.
+# Die Tests prüfen die Grenzen selbst. Ein Pegeltest auf einem einzelnen Ton
+# scheitert an der Normierung jedes Frames, darum stehen hier immer zwei Töne
+# gleicher Lautstärke nebeneinander: einer mitten im Band, einer außerhalb
+# der alten und innerhalb der neuen Grenzen (oder umgekehrt).
+# --------------------------------------------------------------------------- #
+
+NOTE = {name: i for i, name in enumerate(analysis.NOTE_NAMES)}
+
+
+def _sinus_paar(f1: float, f2: float, seconds: float = 8.0) -> np.ndarray:
+    t = np.arange(int(seconds * SR)) / SR
+    return (0.4 * np.sin(2 * np.pi * f1 * t) + 0.4 * np.sin(2 * np.pi * f2 * t)).astype("float32")
+
+
+def test_tiefer_bereich_unter_150_hz_zaehlt_kaum():
+    """A2 (110 Hz) liegt unter dem Band und muss deutlich hinter E5 (659 Hz) zurückfallen.
+
+    Gemessen: mit der alten Untergrenze von 100 Hz das 1,77-Fache von E5,
+    mit der neuen 0,13.
+    """
+    chroma = analysis.key_chroma(_sinus_paar(110.0, 659.26)).mean(axis=1)
+    assert chroma[NOTE["A"]] < 0.5 * chroma[NOTE["E"]]
+
+
+def test_bereich_bis_1500_hz_zaehlt_mit():
+    """E6 (1319 Hz) liegt im Band und muss neben C5 (523 Hz) deutlich sichtbar bleiben.
+
+    Gleichauf kommen die beiden nie: Auch mitten im Band erreicht ein zweiter,
+    gleich lauter Ton in `chroma_cqt` nur etwa die Hälfte. Gemessen: mit der
+    alten Obergrenze von 1000 Hz 0,05, mit der neuen 0,50.
+    """
+    chroma = analysis.key_chroma(_sinus_paar(523.25, 1318.51)).mean(axis=1)
+    assert chroma[NOTE["E"]] > 0.25 * chroma[NOTE["C"]]
