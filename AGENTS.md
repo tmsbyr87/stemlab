@@ -300,7 +300,13 @@ wiegst:
   150–1500 Hz war die günstigere Lösung und reicht bislang.
 - **Dur oder Moll ist nicht belastbar gemessen.** Der Benchmark misst den
   Grundton sauber (99 %), für das Tongeschlecht fehlt eine Referenz: Mixed
-  In Key nennt immer Moll, Beatport meistens Dur. Wer an `_key()` oder
+  In Key nennt immer Moll, Beatport meistens Dur. Deshalb gibt es zwei
+  Sicherheiten: `key_confidence` für den Grundton (ab 0,25 lag der
+  Grundton in 99,7 % richtig) und `key_mode_confidence` für Dur/Moll (ab
+  0,5 stimmte das Tongeschlecht in 97 % mit Beatport und Essentia überein,
+  bei 0,0 bis 0,25 kaum besser als geraten). Unter 0,5 zeigt die
+  Oberfläche die Tonart mit gleichem Grundton im anderen Tongeschlecht
+  (`key_parallel`) daneben. Wer an `_key()` oder
   `KEY_BAND_HZ` dreht, misst gegen Grundton **und** Beatport, nie allein
   gegen die Tracks, bei denen beide Quellen übereinstimmen – die sind alle
   in Moll. Und er bestätigt jede Einstellung an einem zweiten Jahrgang:

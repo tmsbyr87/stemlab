@@ -1564,10 +1564,15 @@ function renderJob(d) {
     bpm.title = `Halbes/doppeltes Tempo: ${a.bpm_alt} BPM · Sicherheit ${Math.round(a.bpm_confidence * 100)} %`
       + (a.bpm_source === 'beat_this' ? ' · erkannt mit Beat This!' : '');
     const key = el('span', 'fact'); const unsure = a.key_confidence < 0.25 && a.key_alt;
+    // Grundton sicher, aber Dur/Moll offen: dann steht derselbe Grundton im
+    // anderen Tongeschlecht daneben. Ältere Analysen haben kein key_parallel.
+    const modeUnsure = !unsure && a.key_mode_confidence < 0.5 && a.key_parallel;
+    const oder = unsure ? a.key_alt : modeUnsure ? a.key_parallel : '';
     const cam = camParse(a.camelot);
-    key.innerHTML = `<b>${a.key_de}</b>${unsure ? `<small>oder ${a.key_alt}</small>` : ''}` +
+    key.innerHTML = `<b>${a.key_de}</b>${oder ? `<small>oder ${oder}</small>` : ''}` +
       (cam ? `<span class="cam" style="background:${camColor(cam.n, cam.mode)}">${a.camelot}</span>` : '');
-    key.title = `${a.key} · Sicherheit ${Math.round(a.key_confidence * 100)} %`;
+    key.title = `${a.key} · Grundton ${Math.round(a.key_confidence * 100)} %`
+      + (a.key_parallel ? ` · Dur/Moll ${Math.round(a.key_mode_confidence * 100)} %` : '');
     facts.append(bpm, key);
     if (a.downbeats) { const bars = el('span', 'fact'); bars.innerHTML = `<b>${a.downbeats}</b> Takte <small>· ${a.beats_per_bar || 4}/4</small>`; facts.append(bars); }
   }
@@ -2339,7 +2344,7 @@ function reiterAnalyse(ziel, d) {
   const a = (d && d.analysis) || {};
   const block = el('div', 'info-block');
   const paare = [
-    ['Tonart', a.key_de || '–'],
+    ['Tonart', !a.key_de ? '–' : a.key_parallel && a.key_mode_confidence < 0.5 ? `${a.key_de} oder ${a.key_parallel}` : a.key_de],
     ['Camelot', a.camelot || '–'],
     ['Tempo', a.bpm ? `${a.bpm} BPM` : '–'],
     ['Takte', a.downbeats ? `${a.downbeats} · ${a.beats_per_bar || 4}/4` : '–'],

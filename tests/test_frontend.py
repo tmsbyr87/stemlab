@@ -1351,3 +1351,13 @@ def test_beschriftung_wird_gespeichert(html):
         "Gespeichert werden muss der Stand dieses Ordners, nicht ein leerer Rumpf"
     assert re.search(r"async ladeMarken\(\) \{.*?/api/marken", html, re.S), \
         "Und sie muss beim Zeichnen wieder gelesen werden"
+
+
+def test_unsicheres_tongeschlecht_zeigt_die_parallele(html):
+    """Bei unsicherem Dur/Moll steht die Tonart mit gleichem Grundton daneben.
+
+    Ältere Analysen kennen key_mode_confidence nicht. Ohne key_parallel darf
+    dort nichts erscheinen, sonst stünde unter jeder alten Karte „oder “.
+    """
+    assert "key_mode_confidence" in html
+    assert re.search(r"key_mode_confidence\s*<\s*0\.5\s*&&\s*a\.key_parallel", html)

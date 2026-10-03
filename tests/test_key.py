@@ -156,3 +156,41 @@ def test_bereich_bis_1500_hz_zaehlt_mit():
     """
     chroma = analysis.key_chroma(_sinus_paar(523.25, 1318.51)).mean(axis=1)
     assert chroma[NOTE["E"]] > 0.25 * chroma[NOTE["C"]]
+
+
+# --------------------------------------------------------------------------- #
+# Sicherheit beim Tongeschlecht
+#
+# key_confidence misst nur den Grundton: Die Alternative ist dort immer ein
+# anderer Grundton. Ob Dur oder Moll stimmt, sagt sie nicht. Im Benchmark
+# über 495 Tracks lag die Übereinstimmung mit Beatport auch bei
+# key_confidence ≥ 0,8 nur bei 77 %, fast alle Abweichungen waren Dur/Moll.
+# key_mode_confidence vergleicht deshalb die beste Tonart mit demselben
+# Grundton im anderen Tongeschlecht. Ab 0,5 stimmte das Tongeschlecht in
+# 97 % der Fälle mit Beatport und Essentia überein, darunter kaum besser
+# als geraten.
+# --------------------------------------------------------------------------- #
+
+
+def test_klare_kadenzen_haben_ein_sicheres_tongeschlecht(g_minor, c_major):
+    assert key_of(g_minor)["key_mode_confidence"] >= 0.5
+    assert key_of(c_major)["key_mode_confidence"] >= 0.5
+
+
+def test_ohne_terz_ist_das_tongeschlecht_unsicher():
+    """Ein Quintakkord (G–D) lässt Dur und Moll offen, der Grundton bleibt eindeutig."""
+    result = key_of(progression([("G", "D", "G")] * 4))
+    assert result["key_tonic"] == "G"
+    assert result["key_mode_confidence"] < 0.5
+
+
+def test_parallele_hat_denselben_grundton(g_minor, c_major):
+    """Die Gegenstimme beim Tongeschlecht ist dieselbe Tonika, nicht die Paralleltonart."""
+    assert key_of(g_minor)["key_parallel"] == "G-Dur"
+    assert key_of(c_major)["key_parallel"] == "c-Moll"
+
+
+def test_analyse_kennt_die_neuen_felder():
+    felder = analysis.Analysis.__dataclass_fields__
+    assert "key_mode_confidence" in felder
+    assert "key_parallel" in felder
